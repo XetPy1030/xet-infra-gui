@@ -1,0 +1,51 @@
+{
+  "teleport": {
+    "proxy": "teleport.example.com:443",
+    "user": "user@example.com",
+    "cluster": "",
+    "tshPath": null,
+    "mfaMode": "otp"
+  },
+  "db": {
+    "portStrategy": "shared",
+    "presets": [
+      {
+        "id": "db-dev",
+        "env": "dev",
+        "tunnel": "dev-postgres",
+        "dbUser": "app",
+        "dbName": "dev",
+        "port": 6432,
+        "dangerous": false
+      },
+      {
+        "id": "db-prod",
+        "env": "prod",
+        "tunnel": "prod-postgres",
+        "dbUser": "app",
+        "dbName": "prod",
+        "port": 6432,
+        "dangerous": true
+      }
+    ]
+  },
+  "kube": {
+    "namespace": "apps",
+    "clusters": {
+      "dev": "dev-k8s-cluster",
+      "stage": "stage-k8s-cluster",
+      "prod": "prod-k8s-cluster"
+    },
+    "workloads": [
+      {
+        "id": "api",
+        "title": "api",
+        "podPrefix": "api-web-",
+        "podExclude": ["-worker-", "-cron-"],
+        "container": "api",
+        "containerAutoDiscover": true
+      }
+    ],
+    "logsTail": 500
+  }
+}

@@ -1,0 +1,505 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: #d8dee9;
+  background: #12161c;
+  user-select: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #232a35;
+  -webkit-app-region: drag;
+}
+
+.header button {
+  -webkit-app-region: no-drag;
+}
+
+.header-left,
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.logo {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #7aa2f7;
+  margin-right: 4px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #1c232e;
+  white-space: nowrap;
+}
+
+.chip-green {
+  color: #9ece6a;
+}
+
+.chip-yellow {
+  color: #e0af68;
+}
+
+.chip-red {
+  color: #f7768e;
+}
+
+.chip-muted {
+  color: #8b98ab;
+}
+
+button {
+  font: inherit;
+  color: #d8dee9;
+  background: #1c232e;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #232c3a;
+}
+
+button.primary {
+  background: #2b4a86;
+  border-color: #3a5fa8;
+}
+
+button.primary:hover {
+  background: #34579b;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px 6px 0 0;
+  border-bottom: none;
+}
+
+.tab-active {
+  background: #232c3a;
+  border-color: #3a5fa8;
+}
+
+.tab-stop {
+  color: #f7768e;
+}
+
+.banner {
+  margin: 8px 14px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #3a2f1e;
+  border: 1px solid #7a5b2b;
+  color: #e0af68;
+}
+
+.banner-red {
+  background: #3a1e24;
+  border-color: #7a2b3a;
+  color: #f7768e;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* --- DB-прокси (M1) --- */
+
+.proxybar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #232a35;
+  flex-wrap: wrap;
+}
+
+.proxybar-title {
+  color: #8b98ab;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.proxy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proxy-label {
+  white-space: nowrap;
+}
+
+.toggle {
+  width: 34px;
+  height: 18px;
+  padding: 2px;
+  border-radius: 999px;
+  background: #1c232e;
+  border: 1px solid #2c3542;
+  display: inline-flex;
+  align-items: center;
+}
+
+.toggle .knob {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #8b98ab;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.toggle-on {
+  background: #23422b;
+  border-color: #3a6b46;
+}
+
+.toggle-on .knob {
+  transform: translateX(15px);
+  background: #9ece6a;
+}
+
+.proxy-prod .toggle-on {
+  background: #4a2330;
+  border-color: #8a3a4e;
+}
+
+.proxy-prod .toggle-on .knob {
+  background: #f7768e;
+}
+
+/* --- Настройки (конфиг и креды) --- */
+
+.settings {
+  padding: 8px 14px;
+  border-bottom: 1px solid #232a35;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-label {
+  min-width: 110px;
+  color: #8b98ab;
+}
+
+.settings-note {
+  color: #8b98ab;
+}
+
+.settings input {
+  font: inherit;
+  color: #d8dee9;
+  background: #1c232e;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+  padding: 5px 10px;
+  min-width: 220px;
+}
+
+.settings-title {
+  margin: 4px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8b98ab;
+}
+
+.config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-path {
+  color: #8b98ab;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.config-editor {
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #d8dee9;
+  background: #1c232e;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-height: 220px;
+  resize: vertical;
+}
+
+.config-error {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tab-close {
+  color: #8b98ab;
+  padding: 0 2px;
+}
+
+.tab-close:hover {
+  color: #f7768e;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 14px 14px;
+}
+
+.terminal-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  background: #12161c;
+}
+
+/* --- Kubernetes (M2) --- */
+
+.kubebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #232a35;
+  flex-wrap: wrap;
+}
+
+.kubebar-title {
+  color: #8b98ab;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.envs {
+  display: flex;
+  gap: 2px;
+}
+
+.env {
+  border-radius: 0;
+}
+
+.env:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.env:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.env-active {
+  background: #2b4a86;
+  border-color: #3a5fa8;
+}
+
+.env-prod.env-active {
+  background: #7a2b3a;
+  border-color: #8a3a4e;
+}
+
+.kube-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.logtools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+
+.logtools-search {
+  font: inherit;
+  color: #d8dee9;
+  background: #1c232e;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+  padding: 5px 10px;
+  min-width: 200px;
+}
+
+.pods {
+  height: 100%;
+  overflow: auto;
+  user-select: text;
+}
+
+.pods-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.pods-search {
+  font: inherit;
+  color: #d8dee9;
+  background: #1c232e;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+  padding: 3px 8px;
+  min-width: 180px;
+}
+
+.pods-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #8b98ab;
+}
+
+.pods-group {
+  margin-bottom: 16px;
+}
+
+.pods-group-title {
+  color: #7aa2f7;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.pods-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pods-table th {
+  text-align: left;
+  font-weight: 500;
+  color: #8b98ab;
+  padding: 4px 8px;
+  border-bottom: 1px solid #232a35;
+}
+
+.pods-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #1a2029;
+  vertical-align: middle;
+}
+
+.pod-name {
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.pod-fresh .pod-name {
+  color: #9ece6a;
+}
+
+.pod-badge {
+  margin-left: 8px;
+}
+
+.pod-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.pod-actions button {
+  padding: 3px 8px;
+}
+
+.exec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.exec-row {
+  display: flex;
+  gap: 6px;
+}
+
+.exec-input {
+  flex: 1;
+  font: inherit;
+  font-family: 'SF Mono', Menlo, monospace;
+  color: #d8dee9;
+  background: #1c232e;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+  padding: 5px 10px;
+}
+
+.exec-out {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  background: #0d1116;
+  border: 1px solid #232a35;
+  border-radius: 6px;
+  font-family: 'SF Mono', Menlo, monospace;
+  white-space: pre-wrap;
+}
+
+.empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #8b98ab;
+  user-select: text;
+}

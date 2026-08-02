@@ -3,6 +3,8 @@ import type { RpcMap } from './types'
 
 const id = z.string().uuid()
 const env = z.enum(['dev', 'stage', 'prod'])
+/** id пресета из конфига (db-прокси): им адресуются и прокси, и SQL-туннель. */
+const presetId = z.string().min(1).max(64)
 /** Общая часть kube-действия: окружение + цель (workload и/или конкретный под). */
 const kubeAction = z.object({
   env,
@@ -32,8 +34,8 @@ export const rpcReqSchemas: { [K in keyof RpcMap]: z.ZodType } = {
   'session.dispose': z.object({ id }),
   'session.setPaused': z.object({ id, paused: z.boolean() }),
   'proxy.list': z.undefined(),
-  'proxy.start': z.object({ presetId: z.string().min(1).max(64), force: z.boolean().optional() }),
-  'proxy.stop': z.object({ presetId: z.string().min(1).max(64) }),
+  'proxy.start': z.object({ presetId, force: z.boolean().optional() }),
+  'proxy.stop': z.object({ presetId }),
   'creds.status': z.undefined(),
   'creds.save': z.object({
     password: z.string().max(1024).nullish(),
@@ -48,5 +50,15 @@ export const rpcReqSchemas: { [K in keyof RpcMap]: z.ZodType } = {
     follow: z.boolean().optional()
   }),
   'kube.exec': kubeAction.extend({ command: z.string().min(1).max(8192) }),
-  'kube.execPty': kubeAction.extend({ command: z.string().min(1).max(8192) })
+  'kube.execPty': kubeAction.extend({ command: z.string().min(1).max(8192) }),
+  'sql.exec': z.object({
+    presetId,
+    // запрос из редактора: длинный INSERT или простыня из дампа — норма
+    query: z.string().min(1).max(1024 * 1024),
+    confirmed: z.boolean().optional()
+  }),
+  'sql.history': z.undefined(),
+  'sql.clearHistory': z.undefined(),
+  'sql.psql': z.object({ presetId }),
+  'sql.dump': z.object({ dumpId: z.string().min(1).max(64), presetId })
 }

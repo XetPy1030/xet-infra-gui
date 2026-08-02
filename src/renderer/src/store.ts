@@ -3,6 +3,7 @@ import type {
   CertHealth,
   ConfigState,
   CredsStatus,
+  DumpTaskView,
   EventMap,
   EnvId,
   KubeSessionMeta,
@@ -11,12 +12,13 @@ import type {
   PromptKind,
   ProxyView,
   SessionInfo,
+  SqlStateView,
   TshStatus
 } from '@shared/types'
 import { onEvent, rpc } from './api'
 
 /** Что показывает главная область окна (docs/02 §3). */
-export type MainView = 'pods' | 'session'
+export type MainView = 'pods' | 'sql' | 'session'
 
 interface AppStore {
   bootstrapped: boolean
@@ -44,6 +46,16 @@ interface AppStore {
   health: CertHealth | null
   creds: CredsStatus | null
   mfaEnroll: EventMap['mfa/enroll'] | null
+  /** Пресеты и лимиты SQL-консоли: статика конфига (null до bootstrap). */
+  sql: SqlStateView | null
+  /**
+   * Выбранный туннель SQL-консоли и текст запроса живут в сторе, а не в панели:
+   * уход на таб терминала и возврат не должны стирать набранное.
+   */
+  sqlPresetId: string | null
+  sqlQuery: string
+  /** Идущие и завершённые дампы по sessionId (FR-Q5). */
+  dumps: Record<string, DumpTaskView>
 
   setConfig(config: ConfigState): void
   setStatus(status: TshStatus | null): void
@@ -60,6 +72,9 @@ interface AppStore {
   setHealth(cert: CertHealth): void
   setCreds(creds: CredsStatus): void
   setMfaEnroll(p: AppStore['mfaEnroll']): void
+  setSqlPreset(presetId: string): void
+  setSqlQuery(query: string): void
+  upsertDump(task: DumpTaskView): void
   applyBootstrap(data: {
     config: ConfigState
     status: TshStatus | null
@@ -67,6 +82,8 @@ interface AppStore {
     proxies: ProxyView[]
     kube: KubeStateView
     kubeSessions: KubeSessionMeta[]
+    sql: SqlStateView
+    dumps: DumpTaskView[]
   }): void
 }
 
@@ -88,6 +105,10 @@ export const useApp = create<AppStore>((set) => ({
   health: null,
   creds: null,
   mfaEnroll: null,
+  sql: null,
+  sqlPresetId: null,
+  sqlQuery: '',
+  dumps: {},
 
   setConfig: (config) => set({ config }),
   setStatus: (status) => set({ status }),
@@ -110,12 +131,15 @@ export const useApp = create<AppStore>((set) => ({
       const kubeSessions = { ...s.kubeSessions }
       delete kubeSessions[id]
       const activeId = s.activeId === id ? (order.at(-1) ?? null) : s.activeId
+      const dumps = { ...s.dumps }
+      delete dumps[id] // задача дампа живёт ровно столько, сколько её таб
       return {
         sessions,
         order,
         activeId,
         kubeSessions,
-        view: activeId === null ? 'pods' : s.view,
+        dumps,
+        view: activeId === null && s.view === 'session' ? 'pods' : s.view,
         manualPrompt: s.manualPrompt?.sessionId === id ? null : s.manualPrompt
       }
     }),
@@ -142,7 +166,10 @@ export const useApp = create<AppStore>((set) => ({
   setHealth: (health) => set({ health }),
   setCreds: (creds) => set({ creds }),
   setMfaEnroll: (mfaEnroll) => set({ mfaEnroll }),
-  applyBootstrap: ({ config, status, sessions, proxies, kube, kubeSessions }) =>
+  setSqlPreset: (sqlPresetId) => set({ sqlPresetId }),
+  setSqlQuery: (sqlQuery) => set({ sqlQuery }),
+  upsertDump: (task) => set((s) => ({ dumps: { ...s.dumps, [task.sessionId]: task } })),
+  applyBootstrap: ({ config, status, sessions, proxies, kube, kubeSessions, sql, dumps }) =>
     set(() => {
       const map: Record<string, SessionInfo> = {}
       for (const info of sessions) map[info.id] = info
@@ -151,6 +178,8 @@ export const useApp = create<AppStore>((set) => ({
       for (const view of proxies) proxyMap[view.presetId] = view
       const kubeMap: Record<string, KubeSessionMeta> = {}
       for (const meta of kubeSessions) kubeMap[meta.sessionId] = meta
+      const dumpMap: Record<string, DumpTaskView> = {}
+      for (const task of dumps) dumpMap[task.sessionId] = task
       return {
         bootstrapped: true,
         config,
@@ -161,7 +190,11 @@ export const useApp = create<AppStore>((set) => ({
         proxies: proxyMap,
         proxyOrder: proxies.map((x) => x.presetId),
         kube,
-        kubeSessions: kubeMap
+        kubeSessions: kubeMap,
+        sql,
+        // первый пресет по умолчанию: раздел открывается сразу рабочим
+        sqlPresetId: sql.targets[0]?.presetId ?? null,
+        dumps: dumpMap
       }
     })
 }))
@@ -181,6 +214,7 @@ export function initApp(): void {
   onEvent('kube/session', ({ sessionId, meta }) =>
     useApp.getState().setKubeSession(sessionId, meta)
   )
+  onEvent('sql/dump', ({ task }) => useApp.getState().upsertDump(task))
   // Backpressure: чанки НЕактивных сессий renderer не рисует (они лягут в ring
   // buffer main'а) — подтверждаем сразу. Активную подтверждает TerminalView
   // после реального xterm.write; ack — абсолютный offset, дубли безвредны.

@@ -3,11 +3,12 @@
 Menu-bar «инфраструктурный хаб» для macOS поверх Teleport (`tsh`): DB-прокси тумблерами,
 bash в поды, логи, SQL — с автологином (пароль + TOTP подставляются сами).
 
-**Статус: M2.** Работает: menu bar с агрегированным статусом, `tsh login` с автоподстановкой
+**Статус: M3.** Работает: menu bar с агрегированным статусом, `tsh login` с автоподстановкой
 пароля/OTP из Keychain, тумблеры DB-прокси с супервизией и рестартом после перелогина,
 Kubernetes — список подов с группировкой по workload'ам, «Bash → workload» в свежайший под,
-логи `--follow` с паузой и поиском, one-shot команды, подтверждение действий на prod. Дальше по
-[roadmap](docs/05-roadmap.md): M3 — SQL-консоль.
+логи `--follow` с паузой и поиском, one-shot команды, подтверждение действий на prod,
+SQL-консоль в туннель — результат таблицей, история запросов, `psql` в терминале, пресеты
+`pg_dump` с прогрессом. Дальше по [roadmap](docs/05-roadmap.md): M4 — палитра ⌘K и полировка.
 
 Документация: [docs/](docs/README.md) — требования, UX, архитектура (паттерны в
 [ADR](docs/adr)), интеграция tsh, roadmap.
@@ -70,8 +71,8 @@ XET_TELEPORT_PASSWORD='...' XET_TELEPORT_TOTP_SECRET='BASE32SECRET' npm run dev
 ## Структура
 
 ```
-src/core      — ядро без Electron: домен, порты, схема конфига, SessionManager/PromptPipeline/Totp/Proxy/Kube/Config, модуль teleport
-src/main      — composition root: адаптеры (node-pty, execFile, PATH из login-shell), IPC, окна
+src/core      — ядро без Electron: домен, порты, схема конфига, SessionManager/PromptPipeline/Totp/Proxy/Kube/Sql/Dump/Config, модуль teleport
+src/main      — composition root: адаптеры (node-pty, execFile, pg, PATH из login-shell), IPC, окна
 src/preload   — узкий CJS-мост с allowlist каналов (sandbox)
 src/renderer  — React + zustand + @xterm/xterm (WebGL)
 src/shared    — IPC-контракт: типы, каналы, zod-схемы

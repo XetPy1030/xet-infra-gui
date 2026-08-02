@@ -1,11 +1,7 @@
+import type { TextStore } from './TextStore'
+
 /**
- * Хранилище конфига (ADR-0004): отдаёт и принимает сырой текст, про схему не
- * знает — разбор и валидация живут в ConfigService.
+ * Хранилище конфига (ADR-0004): тот же текстовый порт, что и у истории
+ * запросов — форма одна, различаются только путь и владелец разбора.
  */
-export interface ConfigStore {
-  /** Путь к файлу — показывается в UI, чтобы конфиг можно было править руками. */
-  readonly path: string
-  /** null — файла ещё нет. */
-  read(): string | null
-  write(text: string): void
-}
+export type ConfigStore = TextStore

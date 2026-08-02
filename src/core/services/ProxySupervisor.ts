@@ -36,6 +36,8 @@ interface ProxyRuntime {
   /** Управляемый останов (stop/restart): onSessionDown не вмешивается. */
   stopping: boolean
   probing: boolean
+  /** Когда последний раз доходили `SELECT 1` до самой базы (M3, FR-D3). */
+  lastSqlProbe: number
   probeTimer: ReturnType<typeof setTimeout> | null
   restartTimer: ReturnType<typeof setTimeout> | null
   stableTimer: ReturnType<typeof setTimeout> | null
@@ -53,6 +55,15 @@ const PROBE_TIMEOUT_MS = 1500
 /** Порт так и не открылся при живом процессе → degraded (но продолжаем ждать). */
 const READY_TIMEOUT_MS = 30_000
 const STOP_WAIT_MS = 6000
+/**
+ * Как часто здоровый туннель проверяется запросом в саму базу (FR-D3): открытый
+ * порт ещё не значит рабочую БД, но и гонять `SELECT 1` каждые 10 с незачем —
+ * это соединение через Teleport, а не локальный connect.
+ */
+const SQL_PROBE_MS = 60_000
+
+/** Расширенный health-check туннеля: `SELECT 1` драйвером (SqlService.probe). */
+export type SqlProbe = (presetId: string) => Promise<{ ok: true } | { ok: false; error: string }>
 
 /**
  * Supervisor DB-прокси (docs/03 §4, docs/04 §3.2): прокси — это пресет с
@@ -63,6 +74,8 @@ const STOP_WAIT_MS = 6000
 export class ProxySupervisor {
   readonly events = new Emitter<ProxyEvents>()
   private proxies = new Map<string, ProxyRuntime>()
+  /** Ставится в composition root: SqlService знает и супервизора, и драйвер. */
+  private sqlProbe: SqlProbe | null = null
 
   constructor(
     presets: DbProxyPreset[],
@@ -86,6 +99,7 @@ export class ProxySupervisor {
         probeStartedAt: 0,
         stopping: false,
         probing: false,
+        lastSqlProbe: 0,
         probeTimer: null,
         restartTimer: null,
         stableTimer: null
@@ -96,6 +110,16 @@ export class ProxySupervisor {
 
   list(): ProxyView[] {
     return [...this.proxies.values()].map((rt) => this.view(rt))
+  }
+
+  /**
+   * Подключить расширенный health-check (M3): туннель считается здоровым, только
+   * если через него отвечает сама база. Ставится сеттером, а не аргументом
+   * конструктора: SqlService спрашивает у супервизора состояние прокси, и через
+   * конструктор эта пара была бы неразрешимо циклической.
+   */
+  setSqlProbe(probe: SqlProbe): void {
+    this.sqlProbe = probe
   }
 
   /**
@@ -281,10 +305,18 @@ export class ProxySupervisor {
     const sessionId = rt.sessionId
     if (!rt.desired || !sessionId || !this.sessions.isAlive(sessionId)) return
     rt.probing = true
-    const ok = await this.probe.check('127.0.0.1', rt.preset.port, PROBE_TIMEOUT_MS)
+    const portOpen = await this.probe.check('127.0.0.1', rt.preset.port, PROBE_TIMEOUT_MS)
+    // порт открыт — доходим до самой базы (FR-D3): туннель мог остаться живым
+    // локально, а сессия к БД по ту сторону Teleport уже развалиться
+    const sqlError = portOpen ? await this.checkSql(rt) : null
     rt.probing = false
     // за время probe мир мог измениться (рестарт/стоп) — не трогаем чужую сессию
     if (!rt.desired || rt.sessionId !== sessionId || !this.sessions.isAlive(sessionId)) return
+
+    const ok = portOpen && sqlError === null
+    rt.error =
+      sqlError === null ? (ok ? null : rt.error)
+      : `Порт ${rt.preset.port} открыт, но база не отвечает: ${sqlError}`
 
     if (ok) {
       rt.everHealthy = true
@@ -308,6 +340,20 @@ export class ProxySupervisor {
       this.setState(rt, 'degraded')
     }
     this.scheduleProbe(rt, rt.state === 'probing' ? PROBE_FAST_MS : PROBE_SLOW_MS)
+  }
+
+  /**
+   * `SELECT 1` в базу: обязателен на пути к первой готовности, дальше — раз в
+   * SQL_PROBE_MS (в промежутках хватает TCP-probe). null — проверка не нужна
+   * или прошла.
+   */
+  private async checkSql(rt: ProxyRuntime): Promise<string | null> {
+    if (!this.sqlProbe) return null
+    const now = this.clock.now()
+    if (rt.state === 'healthy' && now - rt.lastSqlProbe < SQL_PROBE_MS) return null
+    rt.lastSqlProbe = now
+    const res = await this.sqlProbe(rt.preset.id)
+    return res.ok ? null : res.error
   }
 
   private waitForExit(id: string): Promise<void> {

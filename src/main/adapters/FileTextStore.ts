@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import type { ConfigStore } from '@core/ports/ConfigStore'
+import type { TextStore } from '@core/ports/TextStore'
 
 /**
  * `XET_CONFIG_PATH` — конфиг из произвольного файла: так dev-запуск смотрит в
@@ -12,7 +12,8 @@ export function resolveConfigPath(userDataDir: string, env: NodeJS.ProcessEnv): 
   return isAbsolute(custom) ? custom : resolve(custom)
 }
 
-export class FileConfigStore implements ConfigStore {
+/** Файловая реализация текстового порта: конфиг и история SQL-запросов. */
+export class FileTextStore implements TextStore {
   constructor(readonly path: string) {}
 
   read(): string | null {

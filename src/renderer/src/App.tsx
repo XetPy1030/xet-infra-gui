@@ -5,6 +5,7 @@ import { KubeBar } from './components/KubeBar'
 import { PodsPanel } from './components/PodsPanel'
 import { ProxyPanel } from './components/ProxyPanel'
 import { SettingsPanel } from './components/SettingsPanel'
+import { SqlPanel } from './components/SqlPanel'
 import { StatusBar } from './components/StatusBar'
 import { TerminalView } from './components/TerminalView'
 import { confirmProd, runKubeSession } from './kube'
@@ -136,6 +137,12 @@ export function App(): React.JSX.Element {
         >
           Поды
         </button>
+        <button
+          className={`tab ${view === 'sql' ? 'tab-active' : ''}`}
+          onClick={() => setView('sql')}
+        >
+          SQL
+        </button>
         {order.map((id) => {
             const s = sessions[id]
             if (!s) return null
@@ -209,6 +216,8 @@ export function App(): React.JSX.Element {
       <main className="content">
         {view === 'pods' ?
           <PodsPanel />
+        : view === 'sql' ?
+          <SqlPanel />
         : activeId ?
           <TerminalView
             key={activeId}

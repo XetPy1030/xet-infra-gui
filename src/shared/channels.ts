@@ -29,7 +29,12 @@ export const RPC_CHANNELS = [
   'kube.bash',
   'kube.logs',
   'kube.exec',
-  'kube.execPty'
+  'kube.execPty',
+  'sql.exec',
+  'sql.history',
+  'sql.clearHistory',
+  'sql.psql',
+  'sql.dump'
 ] as const satisfies readonly (keyof RpcMap)[]
 
 export const EVENT_CHANNELS = [
@@ -42,5 +47,6 @@ export const EVENT_CHANNELS = [
   'health/update',
   'mfa/enroll',
   'kube/state',
-  'kube/session'
+  'kube/session',
+  'sql/dump'
 ] as const satisfies readonly (keyof EventMap)[]

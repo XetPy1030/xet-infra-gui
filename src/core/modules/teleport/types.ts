@@ -1,8 +1,10 @@
 import type { z } from 'zod'
 import type {
   dbPresetSchema,
+  dumpPresetSchema,
   envSchema,
   kubeSectionSchema,
+  sqlSectionSchema,
   workloadSchema
 } from './config'
 
@@ -32,6 +34,10 @@ export const ENV_IDS: EnvId[] = ['dev', 'stage', 'prod']
 export type KubeWorkload = z.infer<typeof workloadSchema>
 
 export type KubeConfig = z.infer<typeof kubeSectionSchema>
+
+export type SqlConfig = z.infer<typeof sqlSectionSchema>
+
+export type DumpPreset = z.infer<typeof dumpPresetSchema>
 
 /** Под из `kubectl get pods -o json` — только то, что нужно UI (docs/04 §3.3). */
 export interface PodInfo {

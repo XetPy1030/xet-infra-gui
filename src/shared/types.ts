@@ -9,6 +9,9 @@ export type { SessionInfo, SessionState } from '@core/domain/session'
 export type { ProxyRunState, ProxyView } from '@core/domain/proxy'
 export type { CertHealth } from '@core/domain/health'
 export type { ConfigSaveResult, ConfigState } from '@core/services/ConfigService'
+export type { SqlHistoryEntry } from '@core/domain/sql'
+export type { DumpTaskView } from '@core/services/DumpService'
+export type { SqlExecResult, SqlSessionResult, SqlStateView, SqlTarget } from '@core/services/SqlService'
 export type { EnvId, KubeWorkload, PodInfo, TshStatus } from '@core/modules/teleport/types'
 export type { MfaEnrollPhase } from '@core/modules/teleport/MfaEnrollService'
 export type { ProxyStartResult } from '@core/services/ProxySupervisor'
@@ -26,7 +29,10 @@ export type { PromptKind, PromptPhase }
 import type { SessionInfo } from '@core/domain/session'
 import type { ProxyView } from '@core/domain/proxy'
 import type { CertHealth } from '@core/domain/health'
+import type { SqlHistoryEntry } from '@core/domain/sql'
 import type { ConfigSaveResult, ConfigState } from '@core/services/ConfigService'
+import type { DumpStartResult, DumpTaskView } from '@core/services/DumpService'
+import type { SqlExecResult, SqlSessionResult, SqlStateView } from '@core/services/SqlService'
 import type { EnvId, TshStatus } from '@core/modules/teleport/types'
 import type { MfaEnrollPhase } from '@core/modules/teleport/MfaEnrollService'
 import type { ProxyStartResult } from '@core/services/ProxySupervisor'
@@ -82,6 +88,9 @@ export interface RpcMap {
       proxies: ProxyView[]
       kube: KubeStateView
       kubeSessions: KubeSessionMeta[]
+      /** Пресеты и лимиты SQL-раздела: статика конфига, за процесс не меняется. */
+      sql: SqlStateView
+      dumps: DumpTaskView[]
     }
   }
   'auth.login': { req: void; res: { session: SessionInfo } }
@@ -120,6 +129,16 @@ export interface RpcMap {
   'kube.exec': { req: KubeActionReq & { command: string }; res: KubeExecResult }
   /** Тот же one-shot, но PTY-табом — фолбэк при per-session MFA. */
   'kube.execPty': { req: KubeActionReq & { command: string }; res: KubeSessionResult }
+  /** `confirmed` — пользователь подтвердил мутирующий запрос на боевой базе (US-14). */
+  'sql.exec': { req: { presetId: string; query: string; confirmed?: boolean }; res: SqlExecResult }
+  'sql.history': { req: void; res: SqlHistoryEntry[] }
+  'sql.clearHistory': { req: void; res: void }
+  'sql.psql': { req: { presetId: string }; res: SqlSessionResult }
+  /** Файл выбирается диалогом в main; `canceled` — пользователь передумал. */
+  'sql.dump': {
+    req: { dumpId: string; presetId: string }
+    res: DumpStartResult | { ok: false; reason: 'canceled'; error: null }
+  }
 }
 
 /** События: main → renderer (webContents.send). */
@@ -135,4 +154,6 @@ export interface EventMap {
   'kube/state': { view: KubeStateView }
   /** meta: null — kube-сессия ушла из реестра. */
   'kube/session': { sessionId: string; meta: KubeSessionMeta | null }
+  /** Прогресс/финал дампа (FR-Q5); задача уходит вместе с сессией. */
+  'sql/dump': { task: DumpTaskView }
 }

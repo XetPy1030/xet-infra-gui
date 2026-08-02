@@ -2,18 +2,20 @@ import { z } from 'zod'
 import {
   dbSectionSchema,
   kubeSectionSchema,
+  sqlSectionSchema,
   teleportSectionSchema
 } from '../modules/teleport/config'
 
 /**
  * Конфиг приложения — сумма секций, которые вносят модули (ADR-0006). Сейчас
- * модуль один (teleport), поэтому все три секции приходят из него; появится
+ * модуль один (teleport), поэтому все секции приходят из него; появится
  * второй — добавит свою секцию сюда, схема остаётся единственной точкой правды.
  */
 export const appConfigSchema = z.object({
   teleport: teleportSectionSchema.prefault({}),
   db: dbSectionSchema.prefault({}),
-  kube: kubeSectionSchema.prefault({})
+  kube: kubeSectionSchema.prefault({}),
+  sql: sqlSectionSchema.prefault({})
 })
 
 export type AppConfig = z.infer<typeof appConfigSchema>

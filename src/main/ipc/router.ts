@@ -1,13 +1,16 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import type { MfaEnrollService } from '@core/modules/teleport/MfaEnrollService'
 import type { AuthService } from '@core/services/AuthService'
+import type { DumpService } from '@core/services/DumpService'
 import type { HealthMonitor } from '@core/services/HealthMonitor'
 import type { KubeService } from '@core/services/KubeService'
 import type { ProxySupervisor } from '@core/services/ProxySupervisor'
 import type { SessionManager } from '@core/services/SessionManager'
+import type { SqlService } from '@core/services/SqlService'
 import { rpcReqSchemas } from '@shared/schemas'
 import type { CredsStatus, EventMap, RpcMap } from '@shared/types'
 import type { ConfigBridge } from './configBridge'
+import type { SqlBridge } from './sqlBridge'
 
 export function broadcast<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -22,7 +25,10 @@ interface Deps {
   monitor: HealthMonitor
   mfa: MfaEnrollService
   kube: KubeService
+  sql: SqlService
+  dumps: DumpService
   config: ConfigBridge
+  sqlBridge: SqlBridge
   /** Статус/запись кредов — собирается в composition root (значения не ходят). */
   creds: {
     status(): Promise<CredsStatus>
@@ -30,7 +36,18 @@ interface Deps {
   }
 }
 
-export function registerIpc({ sessions, auth, supervisor, mfa, kube, creds, config }: Deps): void {
+export function registerIpc({
+  sessions,
+  auth,
+  supervisor,
+  mfa,
+  kube,
+  sql,
+  dumps,
+  creds,
+  config,
+  sqlBridge
+}: Deps): void {
   const handle = <K extends keyof RpcMap>(
     channel: K,
     fn: (req: RpcMap[K]['req']) => Promise<RpcMap[K]['res']> | RpcMap[K]['res']
@@ -50,7 +67,9 @@ export function registerIpc({ sessions, auth, supervisor, mfa, kube, creds, conf
       sessions: sessions.list(),
       proxies: supervisor.list(),
       kube: kube.state(),
-      kubeSessions: kube.sessionMetas()
+      kubeSessions: kube.sessionMetas(),
+      sql: sql.state(),
+      dumps: dumps.list()
     }
   })
   handle('auth.login', () => ({ session: auth.login() }))
@@ -81,10 +100,15 @@ export function registerIpc({ sessions, auth, supervisor, mfa, kube, creds, conf
   handle('kube.logs', (req) => kube.logs(req))
   handle('kube.exec', (req) => kube.exec(req))
   handle('kube.execPty', (req) => kube.execPty(req))
+  handle('sql.exec', (req) => sql.exec(req))
+  handle('sql.history', () => sql.historyList())
+  handle('sql.clearHistory', () => sql.clearHistory())
+  handle('sql.psql', ({ presetId }) => sql.openPsql(presetId))
+  handle('sql.dump', (req) => sqlBridge.dump(req))
 }
 
 /** События core → push в renderer (ADR-0005: main — источник правды). */
-export function wireEvents({ sessions, auth, supervisor, monitor, mfa, kube }: Deps): void {
+export function wireEvents({ sessions, auth, supervisor, monitor, mfa, kube, dumps }: Deps): void {
   sessions.events.on('data', (p) => broadcast('session/data', p))
   sessions.events.on('state', (p) => broadcast('session/state', p))
   sessions.events.on('prompt', (p) => broadcast('session/prompt', p))
@@ -96,6 +120,7 @@ export function wireEvents({ sessions, auth, supervisor, monitor, mfa, kube }: D
   })
   kube.events.on('state', (p) => broadcast('kube/state', p))
   kube.events.on('session', (p) => broadcast('kube/session', p))
+  dumps.events.on('progress', (p) => broadcast('sql/dump', p))
   supervisor.events.on('state', (p) => broadcast('proxy/state', p))
   monitor.events.on('update', (p) => broadcast('health/update', p))
   mfa.events.on('progress', (p) => broadcast('mfa/enroll', p))

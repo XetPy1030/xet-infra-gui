@@ -1,11 +1,14 @@
+import { join } from 'node:path'
 import { app, BrowserWindow, powerMonitor } from 'electron'
 import { AuthService } from '@core/services/AuthService'
 import { ConfigService } from '@core/services/ConfigService'
+import { DumpService } from '@core/services/DumpService'
 import { HealthMonitor } from '@core/services/HealthMonitor'
 import { KubeService } from '@core/services/KubeService'
 import { PromptPipeline } from '@core/services/PromptPipeline'
 import { ProxySupervisor } from '@core/services/ProxySupervisor'
 import { SessionManager } from '@core/services/SessionManager'
+import { SqlService } from '@core/services/SqlService'
 import { TotpService } from '@core/services/TotpService'
 import { MfaEnrollService } from '@core/modules/teleport/MfaEnrollService'
 import { TELEPORT_PROMPT_PATTERNS } from '@core/modules/teleport/prompts'
@@ -17,13 +20,16 @@ import { CompositeCredentialStore } from './adapters/CompositeCredentialStore'
 import { ConsoleLogger } from './adapters/ConsoleLogger'
 import { EnvCredentialStore } from './adapters/EnvCredentialStore'
 import { ExecFileRunner } from './adapters/ExecFileRunner'
-import { FileConfigStore, resolveConfigPath } from './adapters/FileConfigStore'
+import { FileTextStore, resolveConfigPath } from './adapters/FileTextStore'
+import { FsFileStat } from './adapters/FsFileStat'
 import { NetTcpProbe } from './adapters/NetTcpProbe'
 import { NodePtyFactory } from './adapters/NodePtyFactory'
+import { PgSqlDriver } from './adapters/PgSqlDriver'
 import { SafeStorageCredentialStore } from './adapters/SafeStorageCredentialStore'
 import { resolveShellEnv, resolveTshPath, stripCredEnv } from './adapters/shellEnv'
 import { createConfigBridge } from './ipc/configBridge'
 import { registerIpc, wireEvents } from './ipc/router'
+import { createSqlBridge } from './ipc/sqlBridge'
 import { createTray } from './tray'
 import { createMainWindow } from './windows'
 
@@ -40,7 +46,7 @@ async function bootstrap(): Promise<void> {
 
   // Composition root (ADR-0004): core собирается из адаптеров, ядро Electron не видит.
   const env = await resolveShellEnv(logger)
-  const configStore = new FileConfigStore(resolveConfigPath(app.getPath('userData'), process.env))
+  const configStore = new FileTextStore(resolveConfigPath(app.getPath('userData'), process.env))
   const configService = new ConfigService(configStore, logger)
   const config = configService.get()
   const tshPath = await resolveTshPath(env, config.teleport.tshPath, logger)
@@ -84,6 +90,25 @@ async function bootstrap(): Promise<void> {
   const monitor = new HealthMonitor(auth)
   const mfa = new MfaEnrollService(sessions, tsh, creds, totp, logger)
   const kube = new KubeService(() => config.kube, tsh, sessions, pipelineFactory, auth, logger)
+  const sql = new SqlService(
+    config.db.presets,
+    config.sql,
+    () => supervisor.list(),
+    new PgSqlDriver(logger),
+    sessions,
+    new FileTextStore(join(app.getPath('userData'), 'sql-history.json')),
+    logger
+  )
+  const dumps = new DumpService(
+    config.db.presets,
+    config.sql.dumpPresets,
+    () => supervisor.list(),
+    sessions,
+    new FsFileStat(),
+    logger
+  )
+  // расширенный health-check туннеля (FR-D3): порт открыт — а база отвечает?
+  supervisor.setSqlProbe((presetId) => sql.probe(presetId))
 
   // Каскад после перелогина (docs/04 §6): прокси на свежий серт + внеочередной health
   auth.events.on('loggedIn', () => {
@@ -115,7 +140,10 @@ async function bootstrap(): Promise<void> {
     monitor,
     mfa,
     kube,
+    sql,
+    dumps,
     config: createConfigBridge(configService),
+    sqlBridge: createSqlBridge(dumps),
     creds: {
       status: credsStatus,
       save: async (req: { password?: string | null; totpSecret?: string | null }) => {
@@ -167,6 +195,7 @@ async function bootstrap(): Promise<void> {
   app.on('before-quit', () => {
     monitor.stop()
     supervisor.dispose()
+    dumps.dispose()
     sessions.disposeAll()
   })
 }

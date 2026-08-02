@@ -34,13 +34,17 @@ src/
 │   │   ├── CredentialStore.ts    # getPassword/getTotpSecret/save… (Keychain | future API)
 │   │   ├── PtyFactory.ts         # spawn(cmd,args,opts) → PtyHandle
 │   │   ├── ProcessRunner.ts      # run(cmd,args,{timeout}) → {stdout,stderr,code}
-│   │   ├── SettingsStore.ts
-│   │   ├── Clock.ts / Logger.ts / Notifier.ts
+│   │   ├── TextStore.ts          # файл-с-текстом: конфиг (ConfigStore) и история SQL
+│   │   ├── SqlDriver.ts          # connect → query/close (M3: `pg` в туннель)
+│   │   ├── TcpProbe.ts / FileStat.ts
+│   │   ├── Clock.ts / Logger.ts
 │   ├── services/            # прикладные сервисы (используют только ports):
 │   │   ├── SessionManager.ts     # реестр сессий, FSM, ring buffers, батчинг вывода
 │   │   ├── ProxySupervisor.ts    # политика рестартов, restartOnRelogin
 │   │   ├── HealthMonitor.ts      # тикер: cert TTL, TCP-probes, SELECT 1
 │   │   ├── KubeService.ts        # M2: kube-контекст, поды, bash/логи/one-shot
+│   │   ├── SqlService.ts         # M3: запросы в туннель, история, psql, SELECT 1
+│   │   ├── DumpService.ts        # M3: пресеты pg_dump, прогресс по размеру файла
 │   │   ├── AuthService.ts        # login/relogin, состояние сертификата
 │   │   ├── TotpService.ts        # генерация кодов (otplib) из секрета в CredentialStore
 │   │   ├── PromptPipeline.ts     # цепочка PromptHandler'ов (см. §4.3)
@@ -50,9 +54,9 @@ src/
 │       └── teleport/        # первый модуль: TshClient (facade), пресеты действий,
 │                            #   PodSelector, конфиг окружений; будущее: grafana/, calendar/
 ├── main/                    # composition root (Electron main)
-│   ├── adapters/            # реализации ports: KeychainCredentialStore (safeStorage),
-│   │                        #   NodePtyFactory, ExecFileRunner, JsonSettingsStore,
-│   │                        #   ElectronNotifier, ShellPathResolver (см. §7)
+│   ├── adapters/            # реализации ports: SafeStorageCredentialStore, NodePtyFactory,
+│   │                        #   ExecFileRunner, FileTextStore, PgSqlDriver, NetTcpProbe,
+│   │                        #   FsFileStat, ShellPathResolver (см. §7)
 │   ├── ipc/                 # регистрация handle/send по контракту из shared/
 │   ├── tray.ts  windows.ts  hotkeys.ts  index.ts
 ├── preload/
@@ -113,7 +117,7 @@ flowchart LR
 | **Chain of Responsibility + Strategy** | `PromptPipeline`                                                             | Поток PTY прогоняется через цепочку обработчиков промптов: Password → Totp → AskUser-фолбэк; стратегии подключаются по конфигу сессии (см. §4.3)                           |
 | **Facade**                             | `TshClient`                                                                  | Все структурированные вызовы tsh (`status/db ls/kube login/get pods` + JSON-парсинг + zod) за одним типизированным интерфейсом; версия-специфичное — в одном месте (NFR-7) |
 | **Observer (typed EventEmitter)**      | core → IPC push → zustand                                                    | Однонаправленный поток данных: main — источник правды, renderer — проекция                                                                                                 |
-| **Repository**                         | `SessionRepository` (in-memory + ring buffers), `SettingsStore`, история SQL | Доступ к состоянию/данным за интерфейсом, а не размазан по сервисам                                                                                                        |
+| **Repository**                         | `SessionRepository` (in-memory + ring buffers), `TextStore` (конфиг, история SQL) | Доступ к состоянию/данным за интерфейсом, а не размазан по сервисам                                                                                                        |
 | **Module / Contribution points**       | `ModuleRegistry` ([ADR-0006](adr/ADR-0006-module-system.md))                 | Будущие домены (Grafana-ссылки, календарь) добавляют `actions/trayItems/views/settings` без правок ядра (NFR-5)                                                            |
 | **ADR**                                | `docs/adr/`                                                                  | Решения фиксируются с контекстом; «почему так» не теряется                                                                                                                 |
 
@@ -199,7 +203,9 @@ interface PromptHandler {
 | `kube.pods`                                     | `{env, force?}` → `{pods, freshest, fetchedAt, cluster}` \| `{error, needsLogin}`; ответ кэшируется на 15 с |
 | `kube.bash` / `kube.logs` / `kube.execPty`      | `{env, workloadId, pod?}` → `{session, meta}` \| ошибка                                                     |
 | `kube.exec`                                     | `{…, command}` → `{stdout, stderr, code, ms}` \| `{error, needsPty}`                                        |
-| `sql.exec`                                      | `{env, query}` → `{columns, rows, ms} \| {error}`                                                           |
+| `sql.exec`                                      | `{presetId, query, confirmed?}` → `{columns, rows, ms, truncated, readOnly}` \| `{reason, error}`           |
+| `sql.history` / `sql.clearHistory`              | история запросов (persist в `<userData>/sql-history.json`)                                                 |
+| `sql.psql` / `sql.dump`                         | `{presetId}` / `{dumpId, presetId}` → `{session}` (PTY-таб; файл дампа выбирается диалогом в main)         |
 | `actions.list` / `actions.run`                  | палитра ⌘K                                                                                                  |
 | `settings.get` / `settings.save` / `creds.save` | …                                                                                                           |
 
@@ -214,6 +220,7 @@ interface PromptHandler {
 | `task/progress` | `{taskId, label, state}` — статус-бар                             |
 | `kube/state`    | `{view}` — окружение, кластер, «переключаю…»                      |
 | `kube/session`  | `{sessionId, meta}` — привязка сессии к поду (null = сессия ушла) |
+| `sql/dump`      | `{task}` — прогресс дампа (размер файла) и его финал              |
 
 Правила: renderer никогда не вызывает tsh и не видит секретов; все мутации идут через main;
 события — единственный способ обновления zustand-стора (снапшот при подключении + дельты).

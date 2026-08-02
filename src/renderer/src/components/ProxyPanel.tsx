@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { isProxyOn } from '@shared/proxy'
 import type { ProxyRunState, ProxyView } from '@shared/types'
 import { rpc } from '../api'
+import { startProxy } from '../proxy'
 import { useApp } from '../store'
 
 const STATE_LABELS: Record<ProxyRunState, string> = {
@@ -37,17 +38,7 @@ export function ProxyPanel(): React.JSX.Element | null {
         await rpc('proxy.stop', { presetId: view.presetId })
         return
       }
-      if (view.dangerous && !window.confirm(`Включить прокси «${view.label}» (PROD)?`)) return
-      const res = await rpc('proxy.start', { presetId: view.presetId })
-      if (res.ok) return
-      if (res.reason === 'conflict') {
-        const yes = window.confirm(
-          `Порт ${view.port} общий: выключить «${res.conflictLabel}» и включить «${view.label}»?`
-        )
-        if (yes) await rpc('proxy.start', { presetId: view.presetId, force: true })
-      } else if (res.reason === 'busy-port') {
-        window.alert(res.hint)
-      }
+      await startProxy(view)
     } finally {
       setBusy(null)
     }

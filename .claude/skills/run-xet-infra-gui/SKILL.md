@@ -71,6 +71,19 @@ M2: `.kubebar` (kube-бар), `.envs button >> nth=N` (окружение — **
 `.pods-group` (таблица подов по workload'ам), `.pod-actions button` (Bash/Логи/Команда…),
 `text=Команда…` + `.exec-input` + `text=Выполнить` (one-shot), `.pods-search` (фильтр по имени),
 `.logtools` (пауза/поиск в логах), `.tab-stop` (завершить сессию → баннер реконнекта).
+M3: `text=SQL` (вкладка консоли), `.envs button >> nth=N` (пресет базы — в разделе SQL это
+именно пресеты, а не окружения kube), `.sql-head .chip` (состояние туннеля),
+`text=Включить туннель`, `.sql-editor` (клик + `keys` — набирать; чтобы стереть, `text=Очистить`,
+прямая запись `.value` мимо React не сработает), `.sql-actions button.primary` (Выполнить),
+`.sql-summary` (итог запроса), `.sql-row` (строки таблицы: их в DOM меньше, чем строк ответа, —
+это виртуализация, а не потеря данных), `.sql-error`, `text=История` + `.sql-history-row`,
+`text=psql в терминале`, `.sql-dump` (прогресс дампа).
+
+**Диалоги** (`window.confirm` — переключение общего порта, prod-guard) Playwright по умолчанию
+отклоняет, и действие молча не происходит. Подменяй перед кликом:
+`eval window.__c=[];window.confirm=(m)=>{window.__c.push(m);return true};1` — потом
+`eval JSON.stringify(window.__c)` покажет, о чём именно спросили. Нативные диалоги Electron
+(выбор файла для дампа) так не обойти — их проверяет человек.
 
 Содержимое сессии удобно смотреть не только скриншотом:
 `eval window.api.invoke("app.bootstrap").then(b=>Promise.all(b.sessions.map(s=>window.api.invoke("session.snapshot",{id:s.id}))))`
@@ -93,7 +106,7 @@ npm run dev   # HMR-окно electron-vite; Ctrl-C для остановки
 ## Test
 
 ```bash
-npm test          # vitest: 12 файлов, 103 теста — все зелёные
+npm test          # vitest: 16 файлов, 158 тестов — все зелёные
 npm run typecheck # tsc node+web
 npm run lint      # eslint, включая правила границ слоёв
 ```
@@ -121,6 +134,14 @@ npm run lint      # eslint, включая правила границ слоё�
   `Bash → api` до промпта в контейнере, `--follow`-логи, one-shot, реконнект. Учти: `get pods`
   на населённом namespace — мегабайты и секунды, поэтому список кэшируется (15 с) — «обновлено HH:MM:SS» в
   `.pods-head` не меняется при переключении вкладок, это норма, а не залипание.
+- **SQL-раздел проверяется без живого кластера** (M3, сделано 2026-08-02): живой туннель требует
+  MFA пользователя, поэтому — свой PostgreSQL и фейковый туннель. Схема, которая сработала:
+  `initdb -D <dir> -U app --auth=trust` + `pg_ctl -o "-p 6543 -h 127.0.0.1 -k /tmp"` (**`-k /tmp`
+  обязательно**: путь unix-сокета в scratchpad длиннее 103 байт, и сервер не стартует), затем
+  фейковый `tsh`, у которого `proxy db` — это `exec node forwarder.mjs 6432 6543` (15 строк на
+  `node:net`). Важно, что порт открывается **после** старта процесса — иначе ProxySupervisor
+  честно откажет «порт занят посторонним». Дальше приложение работает как с настоящим туннелем,
+  включая `SELECT 1`-проверку здоровья и `psql в терминале`.
 - **Фейковый tsh нужен только для того, чего нет вживую** (протухший серт, stage/prod, MFA):
   сохрани `~/Library/Application Support/xet-infra-gui/config.json`, пропиши в нём
   `teleport.tshPath` на bash-скрипт, отвечающий на `status --format=json`, `kube login`,

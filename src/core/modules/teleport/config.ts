@@ -44,6 +44,33 @@ export const dbSectionSchema = z.object({
 })
 
 /**
+ * Пресет дампа (FR-Q5): шаблон команды с подстановками `{port}` `{dbName}`
+ * `{dbUser}` `{file}` `{date}`. Пресет не привязан к конкретной базе — он
+ * выполняется над выбранным в консоли туннелем, поэтому один шаблон годится
+ * для dev и stage сразу.
+ */
+export const dumpPresetSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  /** Идёт в `sh -lc`, так что редирект `> {file}` и пайпы работают как в терминале. */
+  command: z.string().min(1),
+  /** Имя файла, предложенное в диалоге сохранения. */
+  defaultFile: z.string().min(1).default('{dbName}-{date}.sql')
+})
+
+export const sqlSectionSchema = z.object({
+  /** `statement_timeout` сессии: запрос-долгожитель не висит вечно (FR-Q3). */
+  statementTimeoutMs: z.number().int().min(0).max(3_600_000).default(30_000),
+  /** Сколько строк дотягиваем в UI: защита от `select *` по большой таблице. */
+  maxRows: z.number().int().min(1).max(1_000_000).default(1000),
+  /** Длина хранимой истории запросов (FR-Q2). */
+  historyLimit: z.number().int().min(0).max(10_000).default(200),
+  /** Клиент для кнопки «psql в терминале» (FR-Q4). */
+  psqlPath: z.string().min(1).default('psql'),
+  dumpPresets: z.array(dumpPresetSchema).default([])
+})
+
+/**
  * Workload — логическая «служба» в namespace. Имена подов меняются от релиза
  * к релизу, поэтому сопоставление по ПРЕФИКСУ + исключениям (FR-K7).
  */

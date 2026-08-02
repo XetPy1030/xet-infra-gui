@@ -503,3 +503,149 @@ button:disabled {
   color: #8b98ab;
   user-select: text;
 }
+
+/* SQL-консоль (M3) */
+.sql {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  user-select: text;
+}
+
+.sql-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sql-spacer {
+  flex: 1;
+}
+
+.sql-editor {
+  font: inherit;
+  font-family: 'SF Mono', Menlo, monospace;
+  color: #d8dee9;
+  background: #0d1116;
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-height: 90px;
+  max-height: 40%;
+  resize: vertical;
+}
+
+.sql-editor-prod {
+  border-color: #f7768e;
+}
+
+.sql-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sql-error {
+  white-space: pre-wrap;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.sql-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sql-table {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  background: #0d1116;
+  border: 1px solid #232a35;
+  border-radius: 6px;
+}
+
+.sql-table-inner {
+  min-width: max-content;
+}
+
+.sql-row {
+  display: grid;
+  align-items: center;
+  gap: 0;
+  min-width: max-content;
+  border-bottom: 1px solid #1a2029;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.sql-row.sql-thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #161c24;
+  color: #8b98ab;
+  height: 24px;
+}
+
+.sql-cell {
+  padding: 2px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sql-null {
+  color: #6b7688;
+}
+
+.sql-dump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sql-dump-file {
+  font-family: 'SF Mono', Menlo, monospace;
+  color: #8b98ab;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.sql-history {
+  flex: 1;
+  overflow: auto;
+}
+
+.sql-history-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.sql-history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-bottom: 1px solid #1a2029;
+  cursor: pointer;
+}
+
+.sql-history-row:hover {
+  background: #1a2029;
+}
+
+.sql-history-query {
+  flex: 1;
+  font-family: 'SF Mono', Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

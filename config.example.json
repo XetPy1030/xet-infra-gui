@@ -47,5 +47,19 @@
       }
     ],
     "logsTail": 500
+  },
+  "sql": {
+    "statementTimeoutMs": 30000,
+    "maxRows": 1000,
+    "historyLimit": 200,
+    "psqlPath": "psql",
+    "dumpPresets": [
+      {
+        "id": "dump",
+        "title": "pg_dump",
+        "command": "pg_dump -U {dbUser} -h 127.0.0.1 -p {port} {dbName} > {file}",
+        "defaultFile": "{dbName}-{date}.sql"
+      }
+    ]
   }
 }

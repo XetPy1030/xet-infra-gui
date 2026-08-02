@@ -52,7 +52,7 @@ const preset = (id: string, dbName: string, port = 6432): DbProxyPreset => ({
   dangerous: false
 })
 
-function setup(opts: { lsof?: string } = {}) {
+function setup(opts: { lsof?: string; sql?: boolean } = {}) {
   const ptys: FakePty[] = []
   const factory: PtyFactory = {
     spawn: () => {
@@ -86,7 +86,25 @@ function setup(opts: { lsof?: string } = {}) {
   )
   const states: string[] = []
   sup.events.on('state', ({ view }) => states.push(`${view.presetId}:${view.state}`))
-  return { sup, sessions, ptys, states, setPortOpen: (v: boolean) => (portOpen = v) }
+
+  // расширенный health-check (M3): «база отвечает» отдельно от «порт открыт»
+  let dbOk = true
+  const sqlProbes: string[] = []
+  if (opts.sql) {
+    sup.setSqlProbe(async (presetId) => {
+      sqlProbes.push(presetId)
+      return dbOk ? { ok: true } : { ok: false, error: 'terminating connection' }
+    })
+  }
+  return {
+    sup,
+    sessions,
+    ptys,
+    states,
+    sqlProbes,
+    setPortOpen: (v: boolean) => (portOpen = v),
+    setDbOk: (v: boolean) => (dbOk = v)
+  }
 }
 
 const adv = async (ms: number): Promise<void> => {
@@ -215,5 +233,60 @@ describe('ProxySupervisor', () => {
 
     await adv(600)
     expect(sup.list()[0]?.state).toBe('healthy')
+  })
+})
+
+describe('ProxySupervisor: SELECT 1 как health-check (FR-D3, M3)', () => {
+  it('порт открыт, но база молчит → не healthy, а деградация с причиной', async () => {
+    const { sup, setPortOpen, setDbOk } = setup({ sql: true })
+    await sup.start('db-dev')
+    setPortOpen(true)
+    setDbOk(false)
+    await adv(600)
+    expect(sup.list()[0]?.state).toBe('probing') // готовности нет — ждём дальше
+
+    await adv(31_000) // READY_TIMEOUT: дальше врать про «проверяю» нечестно
+    const view = sup.list()[0]
+    expect(view?.state).toBe('degraded')
+    expect(view?.error).toContain('база не отвечает')
+  })
+
+  it('база отвечает → healthy, причина ошибки снята', async () => {
+    const { sup, setPortOpen, setDbOk } = setup({ sql: true })
+    await sup.start('db-dev')
+    setPortOpen(true)
+    setDbOk(false)
+    await adv(31_000)
+    expect(sup.list()[0]?.state).toBe('degraded')
+
+    setDbOk(true)
+    await adv(11_000)
+    expect(sup.list()[0]).toMatchObject({ state: 'healthy', error: null })
+  })
+
+  it('здоровый туннель не дёргает базу на каждом TCP-probe (это соединение через Teleport)', async () => {
+    const { sup, sqlProbes, setPortOpen } = setup({ sql: true })
+    await sup.start('db-dev')
+    setPortOpen(true)
+    await adv(600)
+    expect(sqlProbes).toHaveLength(1) // проверка готовности
+
+    await adv(30_000) // три медленных probe'а по 10 с
+    expect(sqlProbes).toHaveLength(1)
+
+    await adv(31_000) // прошла минута
+    expect(sqlProbes).toHaveLength(2)
+  })
+
+  it('здоровая база падает между probe’ами → degraded', async () => {
+    const { sup, setPortOpen, setDbOk } = setup({ sql: true })
+    await sup.start('db-dev')
+    setPortOpen(true)
+    await adv(600)
+    expect(sup.list()[0]?.state).toBe('healthy')
+
+    setDbOk(false)
+    await adv(61_000)
+    expect(sup.list()[0]?.state).toBe('degraded')
   })
 })

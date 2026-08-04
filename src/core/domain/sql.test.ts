@@ -76,6 +76,7 @@ describe('tunnelBlocker', () => {
     env: 'dev',
     port: 6432,
     dangerous: false,
+    on: state !== 'off',
     state,
     sessionId: null,
     attempts: 0,

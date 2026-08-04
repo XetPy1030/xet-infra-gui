@@ -1,13 +1,13 @@
-import { app, dialog, Menu, nativeImage, Tray } from 'electron'
+import { app, Menu, nativeImage, Tray } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import type { CertHealth } from '@core/domain/health'
 import type { ProxyView } from '@core/domain/proxy'
-import { ENV_IDS, type EnvId } from '@core/modules/teleport/types'
+import { ENV_IDS } from '@core/modules/teleport/types'
 import type { AuthService } from '@core/services/AuthService'
 import type { HealthMonitor } from '@core/services/HealthMonitor'
-import type { KubeSessionResult, KubeService } from '@core/services/KubeService'
+import type { KubeService } from '@core/services/KubeService'
 import type { ProxySupervisor } from '@core/services/ProxySupervisor'
-import { isProxyOn } from '@shared/proxy'
+import type { RunAction } from './actions'
 
 interface TrayDeps {
   auth: AuthService
@@ -15,13 +15,19 @@ interface TrayDeps {
   monitor: HealthMonitor
   kube: KubeService
   openWindow: () => void
+  /**
+   * Всё, что делает трей, — действия из реестра (ADR-0004). Меню остаётся
+   * нативным (чекбоксы, radio), но подтверждения и логика — в действиях, а не
+   * второй копией здесь.
+   */
+  runAction: RunAction
 }
 
 /** Агрегированный статус → цвет иконки (docs/02 §2). */
 function aggregate(deps: TrayDeps, cert: CertHealth | null): '🟢' | '🟡' | '🔴' | '⚪' {
   const status = deps.auth.getCached()
   const proxies = deps.supervisor.list()
-  const anyOn = proxies.some((p) => isProxyOn(p.state))
+  const anyOn = proxies.some((p) => p.on)
   if (proxies.some((p) => p.state === 'error' || p.state === 'degraded')) return '🔴'
   if (status?.loggedIn && cert?.expired) return '🔴'
   if (!status?.loggedIn) return anyOn ? '🔴' : '⚪'
@@ -60,62 +66,6 @@ export function createTray(deps: TrayDeps): Tray {
   const tray = new Tray(nativeImage.createEmpty())
   let cert: CertHealth | null = null
 
-  const toggleProxy = async (view: ProxyView, wantOn: boolean): Promise<void> => {
-    if (!wantOn) {
-      await deps.supervisor.stop(view.presetId)
-      return
-    }
-    if (view.dangerous) {
-      const { response } = await dialog.showMessageBox({
-        type: 'warning',
-        message: `Включить прокси «${view.label}» (PROD)?`,
-        detail: 'Это боевая база. Тумблер станет красным.',
-        buttons: ['Включить', 'Отмена'],
-        defaultId: 1,
-        cancelId: 1
-      })
-      if (response !== 0) return
-    }
-    const res = await deps.supervisor.start(view.presetId)
-    if (res.ok) return
-    if (res.reason === 'conflict') {
-      const { response } = await dialog.showMessageBox({
-        type: 'question',
-        message: `Порт ${view.port} общий: выключить «${res.conflictLabel}» и включить «${view.label}»?`,
-        buttons: ['Переключить', 'Отмена'],
-        defaultId: 0,
-        cancelId: 1
-      })
-      if (response === 0) await deps.supervisor.start(view.presetId, { force: true })
-    } else if (res.reason === 'busy-port') {
-      dialog.showErrorBox(`Порт ${view.port} занят`, res.hint)
-    }
-  }
-
-  /**
-   * Быстрое действие из popover (docs/02 §2): окно вперёд, ошибку — диалогом.
-   * `confirmProd` — US-14: shell на боевом кластере только с подтверждением.
-   */
-  const runKubeAction = async (
-    run: () => Promise<KubeSessionResult>,
-    confirmProd?: string
-  ): Promise<void> => {
-    if (confirmProd !== undefined && deps.kube.state().env === 'prod') {
-      const { response } = await dialog.showMessageBox({
-        type: 'warning',
-        message: `PROD: ${confirmProd}. Продолжить?`,
-        detail: 'Это боевой кластер.',
-        buttons: ['Продолжить', 'Отмена'],
-        defaultId: 1,
-        cancelId: 1
-      })
-      if (response !== 0) return
-    }
-    deps.openWindow()
-    const res = await run()
-    if (!res.ok) dialog.showErrorBox('Kubernetes', res.error)
-  }
-
   const buildMenu = (): Menu => {
     const status = deps.auth.getCached()
     const items: MenuItemConstructorOptions[] = []
@@ -128,13 +78,7 @@ export function createTray(deps: TrayDeps): Tray {
         : 'Не залогинен',
       enabled: false
     })
-    items.push({
-      label: 'Перелогин',
-      click: () => {
-        deps.auth.login()
-        deps.openWindow()
-      }
-    })
+    items.push({ label: 'Перелогин', click: () => void deps.runAction('auth.login') })
     items.push({ type: 'separator' })
 
     const proxies = deps.supervisor.list()
@@ -145,8 +89,8 @@ export function createTray(deps: TrayDeps): Tray {
         items.push({
           label: `${view.env === 'prod' ? '🔴 ' : ''}${view.label} — ${PROXY_LABELS[view.state]}`,
           type: 'checkbox',
-          checked: isProxyOn(view.state),
-          click: (item) => void toggleProxy(view, item.checked)
+          checked: view.on,
+          click: () => void deps.runAction(`proxy.toggle:${view.presetId}`)
         })
       }
       items.push({ type: 'separator' })
@@ -165,24 +109,19 @@ export function createTray(deps: TrayDeps): Tray {
         label: env === 'prod' ? '🔴 prod' : env,
         type: 'radio' as const,
         checked: kube.env === env,
-        click: () => void deps.kube.setEnv(env as EnvId)
+        click: () => void deps.runAction(`kube.env:${env}`)
       }))
     })
     for (const w of kube.workloads) {
       items.push({
         label: `Bash → ${w.title} (${kube.env})`,
-        click: () =>
-          void runKubeAction(
-            () => deps.kube.bash({ env: kube.env, workloadId: w.id }),
-            `bash в свежайший под «${w.title}»`
-          )
+        click: () => void deps.runAction(`kube.bash:${w.id}`)
       })
     }
     for (const w of kube.workloads) {
       items.push({
         label: `Логи → ${w.title} (${kube.env})`,
-        click: () =>
-          void runKubeAction(() => deps.kube.logs({ env: kube.env, workloadId: w.id }))
+        click: () => void deps.runAction(`kube.logs:${w.id}`)
       })
     }
     items.push({ type: 'separator' })

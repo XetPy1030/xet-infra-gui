@@ -3,7 +3,8 @@ import {
   formatConfig,
   isConfigured,
   parseConfigText,
-  type AppConfig
+  type AppConfig,
+  type ConfigIssue
 } from '../config/schema'
 import type { ConfigStore } from '../ports/ConfigStore'
 import type { Logger } from '../ports/Logger'
@@ -19,7 +20,10 @@ export interface ConfigState {
   error: string | null
 }
 
-export type ConfigSaveResult = { ok: true } | { ok: false; error: string }
+export type ConfigSaveResult = { ok: true } | { ok: false; error: string; issues: ConfigIssue[] }
+
+/** Проверка текста из редактора: те же проблемы, но без записи на диск. */
+export type ConfigCheckResult = { ok: true } | { ok: false; issues: ConfigIssue[] }
 
 /**
  * Конфиг приложения: читает при старте, валидирует схемой, сохраняет правки.
@@ -72,6 +76,12 @@ export class ConfigService {
     }
   }
 
+  /** Проверка на лету: редактор показывает проблемы схемы до сохранения (FR-C1). */
+  check(text: string): ConfigCheckResult {
+    const parsed = parseConfigText(text)
+    return parsed.ok ? { ok: true } : { ok: false, issues: parsed.issues }
+  }
+
   /** Правка из редактора или импорт шаблона: валидируем, пишем канонический вид. */
   save(text: string): ConfigSaveResult {
     const parsed = parseConfigText(text)
@@ -79,7 +89,8 @@ export class ConfigService {
     try {
       this.writeFile(parsed.config)
     } catch (e) {
-      return { ok: false, error: `не удалось записать ${this.store.path}: ${(e as Error).message}` }
+      const message = `не удалось записать ${this.store.path}: ${(e as Error).message}`
+      return { ok: false, error: message, issues: [{ path: '', message }] }
     }
     this.logger.info(`Конфиг сохранён: ${this.store.path}`)
     return { ok: true }

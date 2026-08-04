@@ -8,13 +8,15 @@ import type { PromptKind, PromptPhase } from '@core/services/PromptPipeline'
 export type { SessionInfo, SessionState } from '@core/domain/session'
 export type { ProxyRunState, ProxyView } from '@core/domain/proxy'
 export type { CertHealth } from '@core/domain/health'
-export type { ConfigSaveResult, ConfigState } from '@core/services/ConfigService'
+export type { ConfigIssue } from '@core/config/schema'
+export type { Hotkeys } from '@core/config/ui'
+export type { ActionDescriptor, ActionResult, ActionReveal } from '@core/services/ActionRegistry'
+export type { ConfigCheckResult, ConfigSaveResult, ConfigState } from '@core/services/ConfigService'
 export type { SqlHistoryEntry } from '@core/domain/sql'
 export type { DumpTaskView } from '@core/services/DumpService'
-export type { SqlExecResult, SqlSessionResult, SqlStateView, SqlTarget } from '@core/services/SqlService'
+export type { SqlExecResult, SqlStateView, SqlTarget } from '@core/services/SqlService'
 export type { EnvId, KubeWorkload, PodInfo, TshStatus } from '@core/modules/teleport/types'
 export type { MfaEnrollPhase } from '@core/modules/teleport/MfaEnrollService'
-export type { ProxyStartResult } from '@core/services/ProxySupervisor'
 export type {
   KubeExecResult,
   KubeFail,
@@ -30,12 +32,17 @@ import type { SessionInfo } from '@core/domain/session'
 import type { ProxyView } from '@core/domain/proxy'
 import type { CertHealth } from '@core/domain/health'
 import type { SqlHistoryEntry } from '@core/domain/sql'
-import type { ConfigSaveResult, ConfigState } from '@core/services/ConfigService'
-import type { DumpStartResult, DumpTaskView } from '@core/services/DumpService'
-import type { SqlExecResult, SqlSessionResult, SqlStateView } from '@core/services/SqlService'
+import type { Hotkeys } from '@core/config/ui'
+import type { ActionDescriptor, ActionResult, ActionReveal } from '@core/services/ActionRegistry'
+import type {
+  ConfigCheckResult,
+  ConfigSaveResult,
+  ConfigState
+} from '@core/services/ConfigService'
+import type { DumpTaskView } from '@core/services/DumpService'
+import type { SqlExecResult, SqlStateView } from '@core/services/SqlService'
 import type { EnvId, TshStatus } from '@core/modules/teleport/types'
 import type { MfaEnrollPhase } from '@core/modules/teleport/MfaEnrollService'
-import type { ProxyStartResult } from '@core/services/ProxySupervisor'
 import type {
   KubeExecResult,
   KubeSessionMeta,
@@ -68,6 +75,17 @@ export interface ConfigFileResult {
   error: string | null
 }
 
+/** Состояние оболочки приложения: хоткеи, автозапуск, доступность tsh (M4). */
+export interface UiStateView {
+  hotkeys: Hotkeys
+  /** Глобальный хоткей не встал (занят другим приложением или не разобрался). */
+  hotkeyError: string | null
+  /** Запуск при входе в систему (`app.setLoginItemSettings`). */
+  autostart: boolean
+  /** Первый шаг мастера (FR-C2): нашёлся ли `tsh` и каким путём. */
+  tsh: { path: string; found: boolean }
+}
+
 /** Общий запрос kube-действия: под явно либо «свежайший под workload'а». */
 export interface KubeActionReq {
   env: EnvId
@@ -91,10 +109,21 @@ export interface RpcMap {
       /** Пресеты и лимиты SQL-раздела: статика конфига, за процесс не меняется. */
       sql: SqlStateView
       dumps: DumpTaskView[]
+      ui: UiStateView
     }
   }
   'auth.login': { req: void; res: { session: SessionInfo } }
+  /** Каталог действий (Command, ADR-0004): палитра ⌘K берёт его при открытии. */
+  'actions.list': { req: void; res: ActionDescriptor[] }
+  /** `confirmed` — ключи вопросов, на которые пользователь уже ответил «да». */
+  'actions.run': {
+    req: { id: string; param?: string; confirmed?: string[] }
+    res: ActionResult
+  }
+  'app.setAutostart': { req: { enabled: boolean }; res: { enabled: boolean } }
   'config.get': { req: void; res: ConfigState }
+  /** Проверка текста редактора без записи: проблемы схемы с путями (FR-C1). */
+  'config.check': { req: { text: string }; res: ConfigCheckResult }
   /** Сохранение валидирует схемой; применяется после перезапуска (config.relaunch). */
   'config.save': { req: { text: string }; res: ConfigSaveResult }
   'config.importFile': { req: void; res: ConfigFileResult }
@@ -111,9 +140,6 @@ export interface RpcMap {
   'session.dispose': { req: { id: string }; res: void }
   /** Пауза потока сессии по кнопке (follow-логи). */
   'session.setPaused': { req: { id: string; paused: boolean }; res: void }
-  'proxy.list': { req: void; res: ProxyView[] }
-  'proxy.start': { req: { presetId: string; force?: boolean }; res: ProxyStartResult }
-  'proxy.stop': { req: { presetId: string }; res: void }
   'creds.status': { req: void; res: CredsStatus }
   /** null — удалить креду; undefined — не трогать. Write-only: значения назад не ходят. */
   'creds.save': {
@@ -133,12 +159,6 @@ export interface RpcMap {
   'sql.exec': { req: { presetId: string; query: string; confirmed?: boolean }; res: SqlExecResult }
   'sql.history': { req: void; res: SqlHistoryEntry[] }
   'sql.clearHistory': { req: void; res: void }
-  'sql.psql': { req: { presetId: string }; res: SqlSessionResult }
-  /** Файл выбирается диалогом в main; `canceled` — пользователь передумал. */
-  'sql.dump': {
-    req: { dumpId: string; presetId: string }
-    res: DumpStartResult | { ok: false; reason: 'canceled'; error: null }
-  }
 }
 
 /** События: main → renderer (webContents.send). */
@@ -156,4 +176,9 @@ export interface EventMap {
   'kube/session': { sessionId: string; meta: KubeSessionMeta | null }
   /** Прогресс/финал дампа (FR-Q5); задача уходит вместе с сессией. */
   'sql/dump': { task: DumpTaskView }
+  /**
+   * Действие запущено не из окна (трей, глобальный хоткей) и просит показать
+   * свой результат: раздел, таб сессии, пресет консоли.
+   */
+  'ui/reveal': { reveal: ActionReveal }
 }

@@ -41,7 +41,10 @@
         "id": "api",
         "title": "api",
         "podPrefix": "api-web-",
-        "podExclude": ["-worker-", "-cron-"],
+        "podExclude": [
+          "-worker-",
+          "-cron-"
+        ],
         "container": "api",
         "containerAutoDiscover": true
       }
@@ -61,5 +64,14 @@
         "defaultFile": "{dbName}-{date}.sql"
       }
     ]
+  },
+  "ui": {
+    "hotkeys": {
+      "toggleWindow": "Alt+Command+I",
+      "palette": "CommandOrControl+K",
+      "envDev": "CommandOrControl+1",
+      "envStage": "CommandOrControl+2",
+      "envProd": "CommandOrControl+3"
+    }
   }
 }

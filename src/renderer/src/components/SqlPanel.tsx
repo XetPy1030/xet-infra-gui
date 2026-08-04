@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { formatBytes } from '@shared/bytes'
 import type { DumpTaskView, SqlExecResult, SqlHistoryEntry, SqlTarget } from '@shared/types'
+import { runAction } from '../actions'
 import { rpc } from '../api'
-import { startProxy } from '../proxy'
 import { useApp } from '../store'
 import { ResultTable } from './ResultTable'
 
@@ -102,13 +102,6 @@ export function SqlPanel(): React.JSX.Element {
     }
   }
 
-  const openSession = async (
-    res: { ok: true; session: { id: string } } | { ok: false; error: string | null }
-  ): Promise<void> => {
-    if (res.ok) setActive(res.session.id)
-    else if (res.error) setError(res.error)
-  }
-
   return (
     <div className="sql">
       <div className="sql-head">
@@ -136,19 +129,18 @@ export function SqlPanel(): React.JSX.Element {
           <button
             className="primary"
             disabled={busy || proxy === undefined}
-            onClick={() => void withBusy(async () => proxy && (await startProxy(proxy)))}
+            onClick={() => void withBusy(() => runAction(`proxy.toggle:${target.presetId}`))}
           >
             Включить туннель
           </button>
         )}
 
         <span className="sql-spacer" />
+        {/* дальше — те же действия, что в палитре и трее: вопросы и логика в ядре */}
         <button
           disabled={busy || !ready}
           title={`psql -U ${target.dbUser} -h 127.0.0.1 -p ${target.port} ${target.dbName}`}
-          onClick={() =>
-            void withBusy(async () => openSession(await rpc('sql.psql', { presetId: target.presetId })))
-          }
+          onClick={() => void withBusy(() => runAction(`sql.psql:${target.presetId}`))}
         >
           psql в терминале
         </button>
@@ -157,16 +149,7 @@ export function SqlPanel(): React.JSX.Element {
             key={d.id}
             disabled={busy || !ready}
             title="Выбрать файл и запустить дамп"
-            onClick={() =>
-              void withBusy(async () => {
-                if (target.dangerous && !window.confirm(`PROD: ${d.title} с «${target.label}»?`)) {
-                  return
-                }
-                const res = await rpc('sql.dump', { dumpId: d.id, presetId: target.presetId })
-                if (res.ok) setActive(res.session.id)
-                else if (res.reason !== 'canceled') setError(res.error)
-              })
-            }
+            onClick={() => void withBusy(() => runAction(`sql.dump:${d.id}:${target.presetId}`))}
           >
             {d.title}…
           </button>

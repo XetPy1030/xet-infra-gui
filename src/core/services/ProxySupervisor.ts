@@ -409,6 +409,7 @@ export class ProxySupervisor {
       env: rt.preset.env,
       port: rt.preset.port,
       dangerous: rt.preset.dangerous,
+      on: rt.desired,
       state: rt.state,
       sessionId: rt.sessionId,
       attempts: rt.attempts,

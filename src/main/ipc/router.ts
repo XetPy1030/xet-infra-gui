@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import type { MfaEnrollService } from '@core/modules/teleport/MfaEnrollService'
+import type { ActionRegistry } from '@core/services/ActionRegistry'
 import type { AuthService } from '@core/services/AuthService'
 import type { DumpService } from '@core/services/DumpService'
 import type { HealthMonitor } from '@core/services/HealthMonitor'
@@ -8,9 +9,8 @@ import type { ProxySupervisor } from '@core/services/ProxySupervisor'
 import type { SessionManager } from '@core/services/SessionManager'
 import type { SqlService } from '@core/services/SqlService'
 import { rpcReqSchemas } from '@shared/schemas'
-import type { CredsStatus, EventMap, RpcMap } from '@shared/types'
+import type { CredsStatus, EventMap, RpcMap, UiStateView } from '@shared/types'
 import type { ConfigBridge } from './configBridge'
-import type { SqlBridge } from './sqlBridge'
 
 export function broadcast<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -27,8 +27,13 @@ interface Deps {
   kube: KubeService
   sql: SqlService
   dumps: DumpService
+  actions: ActionRegistry
   config: ConfigBridge
-  sqlBridge: SqlBridge
+  /** Оболочка приложения: хоткеи, автозапуск, tsh (собирается в composition root). */
+  ui: {
+    state(): UiStateView
+    setAutostart(enabled: boolean): { enabled: boolean }
+  }
   /** Статус/запись кредов — собирается в composition root (значения не ходят). */
   creds: {
     status(): Promise<CredsStatus>
@@ -44,9 +49,10 @@ export function registerIpc({
   kube,
   sql,
   dumps,
+  actions,
   creds,
   config,
-  sqlBridge
+  ui
 }: Deps): void {
   const handle = <K extends keyof RpcMap>(
     channel: K,
@@ -69,11 +75,16 @@ export function registerIpc({
       kube: kube.state(),
       kubeSessions: kube.sessionMetas(),
       sql: sql.state(),
-      dumps: dumps.list()
+      dumps: dumps.list(),
+      ui: ui.state()
     }
   })
   handle('auth.login', () => ({ session: auth.login() }))
+  handle('actions.list', () => actions.list())
+  handle('actions.run', (req) => actions.run(req))
+  handle('app.setAutostart', ({ enabled }) => ui.setAutostart(enabled))
   handle('config.get', () => config.state())
+  handle('config.check', ({ text }) => config.check(text))
   handle('config.save', ({ text }) => config.save(text))
   handle('config.importFile', () => config.importFile())
   handle('config.exportFile', () => config.exportFile())
@@ -88,9 +99,6 @@ export function registerIpc({
     sessions.remove(id)
   })
   handle('session.setPaused', ({ id, paused }) => sessions.setPaused(id, paused))
-  handle('proxy.list', () => supervisor.list())
-  handle('proxy.start', ({ presetId, force }) => supervisor.start(presetId, { force }))
-  handle('proxy.stop', ({ presetId }) => supervisor.stop(presetId))
   handle('creds.status', () => creds.status())
   handle('creds.save', (req) => creds.save(req))
   handle('mfa.enroll', () => ({ session: mfa.enroll() }))
@@ -103,8 +111,6 @@ export function registerIpc({
   handle('sql.exec', (req) => sql.exec(req))
   handle('sql.history', () => sql.historyList())
   handle('sql.clearHistory', () => sql.clearHistory())
-  handle('sql.psql', ({ presetId }) => sql.openPsql(presetId))
-  handle('sql.dump', (req) => sqlBridge.dump(req))
 }
 
 /** События core → push в renderer (ADR-0005: main — источник правды). */

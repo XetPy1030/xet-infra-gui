@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, powerMonitor } from 'electron'
+import { ActionRegistry } from '@core/services/ActionRegistry'
 import { AuthService } from '@core/services/AuthService'
 import { ConfigService } from '@core/services/ConfigService'
 import { DumpService } from '@core/services/DumpService'
@@ -11,11 +12,12 @@ import { SessionManager } from '@core/services/SessionManager'
 import { SqlService } from '@core/services/SqlService'
 import { TotpService } from '@core/services/TotpService'
 import { MfaEnrollService } from '@core/modules/teleport/MfaEnrollService'
+import { teleportActions } from '@core/modules/teleport/actions'
 import { TELEPORT_PROMPT_PATTERNS } from '@core/modules/teleport/prompts'
 import { resolveCluster } from '@core/modules/teleport/config'
 import { TshClient } from '@core/modules/teleport/TshClient'
 import type { TeleportConfig } from '@core/modules/teleport/types'
-import type { CredSource, CredsStatus } from '@shared/types'
+import type { CredSource, CredsStatus, UiStateView } from '@shared/types'
 import { CompositeCredentialStore } from './adapters/CompositeCredentialStore'
 import { ConsoleLogger } from './adapters/ConsoleLogger'
 import { EnvCredentialStore } from './adapters/EnvCredentialStore'
@@ -27,7 +29,10 @@ import { NodePtyFactory } from './adapters/NodePtyFactory'
 import { PgSqlDriver } from './adapters/PgSqlDriver'
 import { SafeStorageCredentialStore } from './adapters/SafeStorageCredentialStore'
 import { resolveShellEnv, resolveTshPath, stripCredEnv } from './adapters/shellEnv'
+import { createActionRunner } from './actions'
+import { registerGlobalHotkeys } from './hotkeys'
 import { createConfigBridge } from './ipc/configBridge'
+import { createNotifications } from './ipc/notifications'
 import { registerIpc, wireEvents } from './ipc/router'
 import { createSqlBridge } from './ipc/sqlBridge'
 import { createTray } from './tray'
@@ -53,10 +58,10 @@ async function bootstrap(): Promise<void> {
   const teleport: TeleportConfig = {
     ...config.teleport,
     cluster: resolveCluster(config.teleport.proxy, config.teleport.cluster),
-    tshPath
+    tshPath: tshPath.path
   }
   logger.info(`конфиг: ${configStore.path}`)
-  logger.info(`tsh: ${tshPath}`)
+  logger.info(`tsh: ${tshPath.path}${tshPath.found ? '' : ' (не найден)'}`)
 
   // Дочерние процессы не наследуют XET_TELEPORT_* (секреты — не для чужих env)
   const childEnv = stripCredEnv(env)
@@ -110,6 +115,51 @@ async function bootstrap(): Promise<void> {
   // расширенный health-check туннеля (FR-D3): порт открыт — а база отвечает?
   supervisor.setSqlProbe((presetId) => sql.probe(presetId))
 
+  const sqlBridge = createSqlBridge(dumps)
+  // Реестр действий (ADR-0004): один каталог на палитру ⌘K, трей и хоткеи.
+  // Провайдер — модуль teleport (ADR-0006); появится второй модуль — добавится
+  // вторым провайдером, ядро не меняется.
+  const actions = new ActionRegistry(
+    [
+      () =>
+        teleportActions({
+          auth,
+          proxies: supervisor,
+          kube,
+          sql,
+          dumps: { start: (req) => sqlBridge.dump(req) }
+        })
+    ],
+    logger
+  )
+
+  const openWindow = (): void => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    } else {
+      createMainWindow()
+    }
+  }
+  /** Глобальный хоткей — переключатель: видимое окно он прячет (docs/02 §5). */
+  const toggleWindow = (): void => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win && win.isVisible() && win.isFocused()) win.hide()
+    else openWindow()
+  }
+  const runAction = createActionRunner(actions, openWindow, logger)
+  const hotkeys = registerGlobalHotkeys(config.ui.hotkeys, toggleWindow, logger)
+  createNotifications({ dumps, supervisor, auth, openWindow })
+
+  const uiState = (): UiStateView => ({
+    hotkeys: config.ui.hotkeys,
+    hotkeyError: hotkeys.error,
+    autostart: app.getLoginItemSettings().openAtLogin,
+    tsh: tshPath
+  })
+
   // Каскад после перелогина (docs/04 §6): прокси на свежий серт + внеочередной health
   auth.events.on('loggedIn', () => {
     void supervisor.restartMarked()
@@ -142,8 +192,15 @@ async function bootstrap(): Promise<void> {
     kube,
     sql,
     dumps,
+    actions,
     config: createConfigBridge(configService),
-    sqlBridge: createSqlBridge(dumps),
+    ui: {
+      state: uiState,
+      setAutostart: (enabled: boolean) => {
+        app.setLoginItemSettings({ openAtLogin: enabled })
+        return { enabled: app.getLoginItemSettings().openAtLogin }
+      }
+    },
     creds: {
       status: credsStatus,
       save: async (req: { password?: string | null; totpSecret?: string | null }) => {
@@ -156,17 +213,6 @@ async function bootstrap(): Promise<void> {
   registerIpc(deps)
   wireEvents(deps)
 
-  const openWindow = (): void => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.show()
-      win.focus()
-    } else {
-      createMainWindow()
-    }
-  }
-
   // Backpressure имеет смысл только при живом окне (иначе ack'ов не будет)
   const syncFlow = (): void => sessions.setFlowEnabled(BrowserWindow.getAllWindows().length > 0)
   app.on('browser-window-created', (_e, win) => {
@@ -174,7 +220,7 @@ async function bootstrap(): Promise<void> {
     win.on('closed', syncFlow)
   })
 
-  createTray({ auth, supervisor, monitor, kube, openWindow })
+  createTray({ auth, supervisor, monitor, kube, openWindow, runAction })
   createMainWindow()
   monitor.start()
 
@@ -193,6 +239,7 @@ async function bootstrap(): Promise<void> {
   })
 
   app.on('before-quit', () => {
+    hotkeys.dispose()
     monitor.stop()
     supervisor.dispose()
     dumps.dispose()

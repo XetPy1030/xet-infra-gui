@@ -4,8 +4,12 @@ import type { EventMap, RpcMap } from './types'
 // никаких runtime-зависимостей (import type — стирается).
 export const RPC_CHANNELS = [
   'app.bootstrap',
+  'app.setAutostart',
   'auth.login',
+  'actions.list',
+  'actions.run',
   'config.get',
+  'config.check',
   'config.save',
   'config.importFile',
   'config.exportFile',
@@ -18,9 +22,6 @@ export const RPC_CHANNELS = [
   'session.ack',
   'session.dispose',
   'session.setPaused',
-  'proxy.list',
-  'proxy.start',
-  'proxy.stop',
   'creds.status',
   'creds.save',
   'mfa.enroll',
@@ -32,9 +33,7 @@ export const RPC_CHANNELS = [
   'kube.execPty',
   'sql.exec',
   'sql.history',
-  'sql.clearHistory',
-  'sql.psql',
-  'sql.dump'
+  'sql.clearHistory'
 ] as const satisfies readonly (keyof RpcMap)[]
 
 export const EVENT_CHANNELS = [
@@ -48,5 +47,6 @@ export const EVENT_CHANNELS = [
   'mfa/enroll',
   'kube/state',
   'kube/session',
-  'sql/dump'
+  'sql/dump',
+  'ui/reveal'
 ] as const satisfies readonly (keyof EventMap)[]

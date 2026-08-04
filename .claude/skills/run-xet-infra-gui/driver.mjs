@@ -58,7 +58,8 @@ const need = () => {
 const commands = {
   help: async () =>
     'launch [--with-creds] | ss <имя> | click <селектор> | texts <селектор> | ' +
-    'keys <текст> | enter | eval <js-выражение> | wait <мс> | logs [n] | quit | exit',
+    'keys <текст> | press <сочетание> | enter | eval <js-выражение> | wait <мс> | ' +
+    'logs [n] | quit | exit',
   launch: (args) => launch(args.includes('--with-creds')),
   ss: async (args) => (need(), screenshot(args[0])),
   click: async (args) => (need(), await win.click(args.join(' '), { timeout: 5000 }), 'OK'),
@@ -66,6 +67,8 @@ const commands = {
     need(), JSON.stringify(await win.locator(args.join(' ')).allTextContents())
   ),
   keys: async (args) => (need(), await win.keyboard.type(args.join(' ')), 'OK'),
+  // сочетание в формате Playwright: `Meta+k`, `Escape`, `Control+2` (хоткеи окна)
+  press: async (args) => (need(), await win.keyboard.press(args.join(' ')), 'OK'),
   enter: async () => (need(), await win.keyboard.press('Enter'), 'OK'),
   eval: async (args) => {
     need()

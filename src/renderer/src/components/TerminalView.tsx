@@ -97,9 +97,17 @@ export function TerminalView({
       void rpc('session.write', { id: sessionId, data })
     })
 
+    // Скрытая/схлопнутая панель даёт нулевую высоту, а fit.fit() — 1×1: это не
+    // размер терминала, PTY на одну строку переформатировал бы вывод. Такой размер
+    // не отправляем (main отбивает его схемой), ждём осмысленной геометрии.
+    // Заодно не шлём неизменившийся размер: ResizeObserver срабатывает и на пиксели.
+    let sent = ''
     const syncSize = (): void => {
       fit.fit()
-      void rpc('session.resize', { id: sessionId, cols: term.cols, rows: term.rows })
+      const { cols, rows } = term
+      if (cols < 2 || rows < 2 || `${cols}x${rows}` === sent) return
+      sent = `${cols}x${rows}`
+      void rpc('session.resize', { id: sessionId, cols, rows })
     }
     const ro = new ResizeObserver(syncSize)
     ro.observe(host)

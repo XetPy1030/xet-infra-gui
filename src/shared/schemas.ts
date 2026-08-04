@@ -15,8 +15,17 @@ const kubeAction = z.object({
 /** Валидация запросов на границе main (ADR-0005): мусор с renderer отбрасывается. */
 export const rpcReqSchemas: { [K in keyof RpcMap]: z.ZodType } = {
   'app.bootstrap': z.undefined(),
+  'app.setAutostart': z.object({ enabled: z.boolean() }),
   'auth.login': z.undefined(),
+  'actions.list': z.undefined(),
+  'actions.run': z.object({
+    id: z.string().min(1).max(128),
+    // параметр действия — команда для контейнера и т.п.
+    param: z.string().max(8192).optional(),
+    confirmed: z.array(z.string().min(1).max(64)).max(8).optional()
+  }),
   'config.get': z.undefined(),
+  'config.check': z.object({ text: z.string().max(1024 * 1024) }),
   'config.save': z.object({ text: z.string().max(1024 * 1024) }),
   'config.importFile': z.undefined(),
   'config.exportFile': z.undefined(),
@@ -33,9 +42,6 @@ export const rpcReqSchemas: { [K in keyof RpcMap]: z.ZodType } = {
   'session.ack': z.object({ id, upTo: z.number().int().min(0) }),
   'session.dispose': z.object({ id }),
   'session.setPaused': z.object({ id, paused: z.boolean() }),
-  'proxy.list': z.undefined(),
-  'proxy.start': z.object({ presetId, force: z.boolean().optional() }),
-  'proxy.stop': z.object({ presetId }),
   'creds.status': z.undefined(),
   'creds.save': z.object({
     password: z.string().max(1024).nullish(),
@@ -58,7 +64,5 @@ export const rpcReqSchemas: { [K in keyof RpcMap]: z.ZodType } = {
     confirmed: z.boolean().optional()
   }),
   'sql.history': z.undefined(),
-  'sql.clearHistory': z.undefined(),
-  'sql.psql': z.object({ presetId }),
-  'sql.dump': z.object({ dumpId: z.string().min(1).max(64), presetId })
+  'sql.clearHistory': z.undefined()
 }

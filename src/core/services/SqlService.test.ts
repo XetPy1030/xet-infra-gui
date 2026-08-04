@@ -29,6 +29,7 @@ const view = (presetId: string, state: ProxyRunState): ProxyView => ({
   env: 'dev',
   port: 6432,
   dangerous: false,
+  on: state !== 'off',
   state,
   sessionId: null,
   attempts: 0,

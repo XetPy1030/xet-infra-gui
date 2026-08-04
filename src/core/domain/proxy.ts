@@ -27,6 +27,12 @@ export interface ProxyView {
   env: string
   port: number
   dangerous: boolean
+  /**
+   * Тумблер в положении «вкл» — намерение пользователя, а не текущее состояние
+   * процесса: между падением и рестартом прокси всё ещё включена. Считает
+   * владелец состояния (ProxySupervisor), UI и трей только рисуют.
+   */
+  on: boolean
   state: ProxyRunState
   sessionId: string | null
   /** Номер попытки рестарта (0 — первый запуск после включения). */

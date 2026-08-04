@@ -46,24 +46,35 @@ export function stripCredEnv(
   return clean
 }
 
-/** Абсолютный путь к tsh: override из конфига → `command -v` в резолвнутом PATH → «tsh». */
+/** Найденный tsh: `found: false` — мастер первого запуска попросит указать путь (FR-C2). */
+export interface TshPath {
+  path: string
+  found: boolean
+}
+
+/**
+ * Путь к tsh: override из конфига, иначе поиск в резолвнутом PATH. `command -v`
+ * годится и для абсолютного пути — заодно проверяет, что файл исполняемый.
+ */
 export async function resolveTshPath(
   env: Record<string, string | undefined>,
   override: string | null,
   logger: Logger
-): Promise<string> {
-  if (override) return override
+): Promise<TshPath> {
+  const candidate = override?.trim() || 'tsh'
   try {
-    const { stdout } = await execFileP('/bin/sh', ['-c', 'command -v tsh'], {
+    const { stdout } = await execFileP('/bin/sh', ['-c', `command -v ${JSON.stringify(candidate)}`], {
       timeout: 4000,
       encoding: 'utf8',
       env: env as NodeJS.ProcessEnv
     })
     const p = stdout.trim()
-    if (p) return p
+    if (p) return { path: p, found: true }
   } catch {
-    /* не нашли — упадём осмысленно ниже по стеку */
+    /* не нашли — скажем об этом ниже, приложение стартует и без tsh */
   }
-  logger.warn('tsh не найден в PATH — оставляю «tsh», задай путь в config.json (teleport.tshPath)')
-  return 'tsh'
+  logger.warn(
+    `tsh не найден (${candidate}) — задай путь в конфиге (teleport.tshPath) или поправь PATH`
+  )
+  return { path: candidate, found: false }
 }

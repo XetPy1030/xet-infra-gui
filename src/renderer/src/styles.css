@@ -649,3 +649,195 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* --- Палитра команд (⌘K) --- */
+
+.pal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(8, 11, 15, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.palette {
+  width: min(620px, 90vw);
+  background: #161c25;
+  border: 1px solid #2c3542;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.pal-input {
+  width: 100%;
+  font: inherit;
+  font-size: 15px;
+  color: #d8dee9;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #232a35;
+  padding: 12px 14px;
+  outline: none;
+}
+
+.pal-list {
+  max-height: 46vh;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.pal-group {
+  padding: 6px 14px 2px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8b98ab;
+}
+
+.pal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.pal-row-active {
+  background: #23324a;
+}
+
+.pal-row-prod .pal-title::before {
+  content: '🔴 ';
+}
+
+.pal-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pal-param {
+  font-size: 11px;
+  color: #8b98ab;
+  border: 1px solid #2c3542;
+  border-radius: 999px;
+  padding: 0 6px;
+}
+
+.pal-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+
+.pal-hint,
+.pal-empty {
+  padding: 8px 14px;
+  color: #8b98ab;
+  font-size: 11px;
+  border-top: 1px solid #232a35;
+}
+
+.pal-empty {
+  border-top: 0;
+  font-size: 13px;
+}
+
+.pal-open {
+  color: #a9b6c9;
+}
+
+/* --- Мастер первого запуска и проблемы конфига --- */
+
+.wizard {
+  padding: 8px 14px 12px;
+  border-bottom: 1px solid #232a35;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wiz-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wiz-step {
+  border: 1px solid #232a35;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.wiz-done {
+  border-color: #2e5b3f;
+}
+
+.wiz-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.wiz-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #1c232e;
+  color: #8b98ab;
+  font-size: 11px;
+}
+
+.wiz-done .wiz-num {
+  background: #23402f;
+  color: #9ece6a;
+}
+
+.wiz-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-hotkey kbd {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #1c232e;
+  border: 1px solid #2c3542;
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+.config-editor-bad {
+  border-color: #8a3a4e;
+}
+
+.config-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.config-issue {
+  display: flex;
+  gap: 8px;
+  text-align: left;
+  background: #1f1a20;
+  border: 1px solid #4a2330;
+  color: #d8dee9;
+}
+
+.config-issue code {
+  color: #f7768e;
+  white-space: nowrap;
+}

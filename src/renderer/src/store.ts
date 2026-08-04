@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  ActionReveal,
   CertHealth,
   ConfigState,
   CredsStatus,
@@ -13,7 +14,8 @@ import type {
   ProxyView,
   SessionInfo,
   SqlStateView,
-  TshStatus
+  TshStatus,
+  UiStateView
 } from '@shared/types'
 import { onEvent, rpc } from './api'
 
@@ -35,10 +37,18 @@ interface AppStore {
    * должен стоить нового `get pods` (он ~2 с), панель дорисовывает по кэшу.
    */
   pods: ({ env: EnvId } & PodsView) | null
-  /** kube-привязка сессии: под/контейнер + workload для «переподключиться». */
+  /** kube-привязка сессии: под/контейнер + широкий workload для «переподключиться». */
   kubeSessions: Record<string, KubeSessionMeta>
-  /** Последняя ошибка kube-действия — баннером (docs/02 §7). */
-  kubeError: { message: string; needsLogin: boolean } | null
+  /** Последняя ошибка действия (kube, прокси, SQL) — баннером (docs/02 §7). */
+  appError: { message: string; needsLogin: boolean } | null
+  /** Оболочка: хоткеи, автозапуск, tsh; null до bootstrap. */
+  ui: UiStateView | null
+  /** Палитра команд ⌘K (docs/02 §4). */
+  paletteOpen: boolean
+  /** Панель настроек развёрнута (её же открывает действие «Настройки»). */
+  settingsOpen: boolean
+  /** Мастер первого запуска (FR-C2): открывается сам на пустом конфиге. */
+  wizardOpen: boolean
   /** Активный ручной промпт (авто-ответ не сработал): подсказка в UI. */
   manualPrompt: { sessionId: string; kind: PromptKind } | null
   proxies: Record<string, ProxyView>
@@ -66,7 +76,13 @@ interface AppStore {
   setKube(kube: KubeStateView): void
   setPods(pods: AppStore['pods']): void
   setKubeSession(sessionId: string, meta: KubeSessionMeta | null): void
-  setKubeError(err: AppStore['kubeError']): void
+  setAppError(err: AppStore['appError']): void
+  setUi(ui: UiStateView): void
+  setPaletteOpen(open: boolean): void
+  setSettingsOpen(open: boolean): void
+  setWizardOpen(open: boolean): void
+  /** Показать то, что сделало действие: раздел, таб сессии, пресет консоли. */
+  applyReveal(reveal: ActionReveal): void
   setManualPrompt(p: AppStore['manualPrompt']): void
   upsertProxy(view: ProxyView): void
   setHealth(cert: CertHealth): void
@@ -84,6 +100,7 @@ interface AppStore {
     kubeSessions: KubeSessionMeta[]
     sql: SqlStateView
     dumps: DumpTaskView[]
+    ui: UiStateView
   }): void
 }
 
@@ -98,7 +115,11 @@ export const useApp = create<AppStore>((set) => ({
   kube: null,
   pods: null,
   kubeSessions: {},
-  kubeError: null,
+  appError: null,
+  ui: null,
+  paletteOpen: false,
+  settingsOpen: false,
+  wizardOpen: false,
   manualPrompt: null,
   proxies: {},
   proxyOrder: [],
@@ -154,7 +175,20 @@ export const useApp = create<AppStore>((set) => ({
       else delete kubeSessions[sessionId]
       return { kubeSessions }
     }),
-  setKubeError: (kubeError) => set({ kubeError }),
+  setAppError: (appError) => set({ appError }),
+  setUi: (ui) => set({ ui }),
+  setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  setWizardOpen: (wizardOpen) => set({ wizardOpen }),
+  applyReveal: ({ view, sessionId, presetId }) =>
+    set((s) => ({
+      // сессия могла ещё не доехать событием — таб появится, когда придёт
+      activeId: sessionId ?? s.activeId,
+      sqlPresetId: presetId ?? s.sqlPresetId,
+      view: view === 'settings' ? s.view : (view ?? s.view),
+      settingsOpen: view === 'settings' ? true : s.settingsOpen,
+      paletteOpen: false
+    })),
   setManualPrompt: (manualPrompt) => set({ manualPrompt }),
   upsertProxy: (view) =>
     set((s) => ({
@@ -169,7 +203,7 @@ export const useApp = create<AppStore>((set) => ({
   setSqlPreset: (sqlPresetId) => set({ sqlPresetId }),
   setSqlQuery: (sqlQuery) => set({ sqlQuery }),
   upsertDump: (task) => set((s) => ({ dumps: { ...s.dumps, [task.sessionId]: task } })),
-  applyBootstrap: ({ config, status, sessions, proxies, kube, kubeSessions, sql, dumps }) =>
+  applyBootstrap: ({ config, status, sessions, proxies, kube, kubeSessions, sql, dumps, ui }) =>
     set(() => {
       const map: Record<string, SessionInfo> = {}
       for (const info of sessions) map[info.id] = info
@@ -194,7 +228,8 @@ export const useApp = create<AppStore>((set) => ({
         sql,
         // первый пресет по умолчанию: раздел открывается сразу рабочим
         sqlPresetId: sql.targets[0]?.presetId ?? null,
-        dumps: dumpMap
+        dumps: dumpMap,
+        ui
       }
     })
 }))
@@ -215,6 +250,8 @@ export function initApp(): void {
     useApp.getState().setKubeSession(sessionId, meta)
   )
   onEvent('sql/dump', ({ task }) => useApp.getState().upsertDump(task))
+  // действие запущено из трея или по глобальному хоткею — окно догоняет
+  onEvent('ui/reveal', ({ reveal }) => useApp.getState().applyReveal(reveal))
   // Backpressure: чанки НЕактивных сессий renderer не рисует (они лягут в ring
   // buffer main'а) — подтверждаем сразу. Активную подтверждает TerminalView
   // после реального xterm.write; ack — абсолютный offset, дубли безвредны.

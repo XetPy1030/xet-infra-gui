@@ -1,126 +1,73 @@
-import { useState } from 'react'
-import type { CredSource } from '@shared/types'
+import { formatAccelerator } from '@shared/accelerator'
+import type { Hotkeys } from '@shared/types'
 import { rpc } from '../api'
 import { useApp } from '../store'
 import { ConfigPanel } from './ConfigPanel'
+import { CredsForm } from './CredsForm'
 
-const SOURCE_LABELS: Record<CredSource, string> = {
-  keychain: 'Keychain',
-  env: 'env (dev-фолбэк)',
-  none: 'нет'
+/** Подписи хоткеев конфига: что именно переназначает пользователь (docs/02 §5). */
+const HOTKEY_LABELS: Record<keyof Hotkeys, string> = {
+  toggleWindow: 'Показать/скрыть окно (глобальный)',
+  palette: 'Палитра команд',
+  envDev: 'Окружение dev',
+  envStage: 'Окружение stage',
+  envProd: 'Окружение prod'
 }
 
-const sourceClass = (s: CredSource): string =>
-  s === 'keychain' ? 'chip-green' : s === 'env' ? 'chip-yellow' : 'chip-red'
-
-/**
- * Креды (ADR-0003): значения — write-only (renderer никогда не читает секреты),
- * видны только источники. Мастер TOTP-девайса — PTY-таб `tsh mfa add`.
- */
 export function SettingsPanel(): React.JSX.Element {
-  const { creds, mfaEnroll, setCreds, setActive, upsertSession } = useApp()
-  const [password, setPassword] = useState('')
-  const [totpSecret, setTotpSecret] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { ui, setUi, setWizardOpen } = useApp()
 
-  const save = async (req: {
-    password?: string | null
-    totpSecret?: string | null
-  }): Promise<void> => {
-    setSaving(true)
-    try {
-      const status = await rpc('creds.save', req)
-      setCreds(status)
-      setPassword('')
-      setTotpSecret('')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const startEnroll = async (): Promise<void> => {
-    const { session } = await rpc('mfa.enroll')
-    upsertSession(session)
-    setActive(session.id)
+  const setAutostart = async (enabled: boolean): Promise<void> => {
+    const res = await rpc('app.setAutostart', { enabled })
+    if (ui) setUi({ ...ui, autostart: res.enabled })
   }
 
   return (
     <div className="settings">
+      <div className="settings-row">
+        <span className="settings-label">Первый запуск</span>
+        <button className="primary" onClick={() => setWizardOpen(true)}>
+          Мастер настройки
+        </button>
+        <span className="settings-note">
+          Проверит tsh, соберёт конфиг, положит креды в Keychain и сделает тестовый логин.
+        </span>
+      </div>
+
       <h3 className="settings-title">Конфиг</h3>
       <ConfigPanel />
 
       <h3 className="settings-title">Креды</h3>
-      {creds && !creds.encryptionAvailable && (
-        <div className="banner">
-          safeStorage/Keychain недоступен — сохранение кредов не сработает, остаётся env-фолбэк.
-        </div>
-      )}
+      <CredsForm />
 
+      <h3 className="settings-title">Приложение</h3>
       <div className="settings-row">
-        <span className="settings-label">Пароль Teleport</span>
-        <span className={`chip ${sourceClass(creds?.password ?? 'none')}`}>
-          {SOURCE_LABELS[creds?.password ?? 'none']}
-        </span>
-        <input
-          type="password"
-          placeholder="новый пароль"
-          value={password}
-          autoComplete="off"
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <span className="settings-label">Автозапуск при входе</span>
         <button
-          disabled={saving || password.length === 0}
-          onClick={() => void save({ password })}
+          className={`toggle ${ui?.autostart ? 'toggle-on' : ''}`}
+          title="Запускать приложение при входе в систему"
+          onClick={() => void setAutostart(!ui?.autostart)}
         >
-          В Keychain
+          <span className="knob" />
         </button>
-        <button
-          disabled={saving || creds?.password !== 'keychain'}
-          onClick={() => void save({ password: null })}
-        >
-          Удалить
-        </button>
+        <span className="settings-note">{ui?.autostart ? 'включён' : 'выключен'}</span>
       </div>
 
       <div className="settings-row">
-        <span className="settings-label">TOTP-секрет</span>
-        <span className={`chip ${sourceClass(creds?.totpSecret ?? 'none')}`}>
-          {SOURCE_LABELS[creds?.totpSecret ?? 'none']}
+        <span className="settings-label">Хоткеи</span>
+        <span className="settings-note">
+          Переназначаются в конфиге, секция <b>ui.hotkeys</b> (формат Electron: `Alt+Command+I`,
+          пусто — выключить). Применяются перезапуском.
         </span>
-        <input
-          type="password"
-          placeholder="base32-секрет (или мастер →)"
-          value={totpSecret}
-          autoComplete="off"
-          onChange={(e) => setTotpSecret(e.target.value)}
-        />
-        <button
-          disabled={saving || totpSecret.length === 0}
-          onClick={() => void save({ totpSecret })}
-        >
-          В Keychain
-        </button>
-        <button
-          disabled={saving || creds?.totpSecret !== 'keychain'}
-          onClick={() => void save({ totpSecret: null })}
-        >
-          Удалить
-        </button>
-        <button className="primary" disabled={saving} onClick={() => void startEnroll()}>
-          Создать TOTP-девайс
-        </button>
       </div>
-
-      {mfaEnroll && (
-        <div className="settings-row settings-note">
-          {mfaEnroll.phase === 'awaiting-existing' &&
-            'Мастер: введи код СУЩЕСТВУЮЩЕГО девайса (G2FA) в терминале.'}
-          {mfaEnroll.phase === 'secret-captured' && 'Мастер: секрет перехвачен…'}
-          {mfaEnroll.phase === 'confirm-sent' && 'Мастер: подтверждающий код отправлен…'}
-          {mfaEnroll.phase === 'done' && '✅ TOTP-девайс создан, секрет в Keychain.'}
-          {mfaEnroll.phase === 'failed' && `❌ Мастер не справился: ${mfaEnroll.error ?? ''}`}
-        </div>
-      )}
+      {ui &&
+        (Object.keys(HOTKEY_LABELS) as (keyof Hotkeys)[]).map((key) => (
+          <div className="settings-row settings-hotkey" key={key}>
+            <span className="settings-label">{HOTKEY_LABELS[key]}</span>
+            <kbd>{ui.hotkeys[key].trim() === '' ? 'выключен' : formatAccelerator(ui.hotkeys[key])}</kbd>
+          </div>
+        ))}
+      {ui?.hotkeyError && <div className="banner banner-red">{ui.hotkeyError}</div>}
     </div>
   )
 }

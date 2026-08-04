@@ -1,6 +1,11 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog } from 'electron'
-import type { ConfigSaveResult, ConfigService, ConfigState } from '@core/services/ConfigService'
+import type {
+  ConfigCheckResult,
+  ConfigSaveResult,
+  ConfigService,
+  ConfigState
+} from '@core/services/ConfigService'
 import type { ConfigFileResult } from '@shared/types'
 
 /**
@@ -9,6 +14,7 @@ import type { ConfigFileResult } from '@shared/types'
  */
 export interface ConfigBridge {
   state(): ConfigState
+  check(text: string): ConfigCheckResult
   save(text: string): ConfigSaveResult
   importFile(): Promise<ConfigFileResult>
   exportFile(): Promise<ConfigFileResult>
@@ -20,6 +26,7 @@ const JSON_FILTER = [{ name: 'JSON', extensions: ['json'] }]
 export function createConfigBridge(config: ConfigService): ConfigBridge {
   return {
     state: () => config.state(),
+    check: (text) => config.check(text),
     save: (text) => config.save(text),
 
     async importFile() {

@@ -57,6 +57,7 @@ printf 'launch\nwait 2000\ntexts .header-left .chip\nss my-shot\nquit\nexit\n' \
 | `click <селектор>`       | клик (например `button.primary` — это Login) |
 | `texts <селектор>`       | все innerText по локатору, JSON              |
 | `keys <текст>` / `enter` | клавиатура в сфокусированный элемент (xterm) |
+| `press <сочетание>`      | сочетание в формате Playwright: `Meta+k`, `Escape`, `Meta+2` |
 | `eval <js>`              | выражение в контексте страницы               |
 | `wait <мс>`              | пауза                                        |
 | `logs [n]`               | хвост stdout/stderr main-процесса            |
@@ -71,6 +72,12 @@ M2: `.kubebar` (kube-бар), `.envs button >> nth=N` (окружение — **
 `.pods-group` (таблица подов по workload'ам), `.pod-actions button` (Bash/Логи/Команда…),
 `text=Команда…` + `.exec-input` + `text=Выполнить` (one-shot), `.pods-search` (фильтр по имени),
 `.logtools` (пауза/поиск в логах), `.tab-stop` (завершить сессию → баннер реконнекта).
+M4: `press Meta+k` (палитра; она ловит хоткей на фазе перехвата, поэтому работает и с
+фокусом в xterm), `.palette`, `.pal-input`, `.pal-row` (строки каталога), `.pal-group`,
+`.pal-pending` (второй шаг — ввод параметра действия), `.pal-open` (кнопка «⌘K Действия»),
+`.wizard` + `.wiz-head` (мастер первого запуска: ✓ в подписи = шаг пройден),
+`.settings-hotkey` (список хоткеев), `.config-issue` (проблемы схемы конфига; клик — прыжок
+к строке), `.config-editor-bad` (класс редактора при непрошедшей схеме).
 M3: `text=SQL` (вкладка консоли), `.envs button >> nth=N` (пресет базы — в разделе SQL это
 именно пресеты, а не окружения kube), `.sql-head .chip` (состояние туннеля),
 `text=Включить туннель`, `.sql-editor` (клик + `keys` — набирать; чтобы стереть, `text=Очистить`,
@@ -106,10 +113,25 @@ npm run dev   # HMR-окно electron-vite; Ctrl-C для остановки
 ## Test
 
 ```bash
-npm test          # vitest: 16 файлов, 158 тестов — все зелёные
+npm test          # vitest: 21 файл, 196 тестов — все зелёные
+npm run test:e2e  # Playwright: собранное приложение + фейковый tsh (~5 с, без кластера)
 npm run typecheck # tsc node+web
 npm run lint      # eslint, включая правила границ слоёв
 ```
+
+E2E (`e2e/smoke.mjs` + `e2e/fake-tsh.mjs`) — самый дешёвый способ прогнать UI целиком:
+свой `XET_CONFIG_PATH` и свой `--user-data-dir`, поэтому он не трогает ни конфиг
+пользователя, ни его Keychain и не спорит с single-instance lock. Фейковый tsh отвечает
+на `status`, `kube login`, `kubectl get pods/logs/exec`; `proxy db` там намеренно НЕ
+открывает порт (иначе `SELECT 1` висел бы до таймаута) — прокси в E2E не гоняем.
+
+`launch()` там же копит stdout/stderr main'а (`mainOut()`): часть регрессий видно только
+в логе процесса, а не в окне (пример — отбитый схемой `session.resize`). Приём для проверки
+такой регрессии: `win.evaluate` схлопывает высоту `.terminal-host` в ноль, потом возвращает.
+
+Драйвер (в отличие от смоука) запускается на обычном userData и упирается в single-instance
+lock, если приложение уже открыто — не только `npm run dev`, но и запущенная копия. Разовую
+пробу проще написать по образцу `smoke.mjs`, со своим `--user-data-dir`.
 
 Прогон сделан не ради скриншота: итог сверяется с чек-листом
 [docs/06-final-check.md](../../../docs/06-final-check.md) (что проверить после «этап готов»).
@@ -161,6 +183,13 @@ npm run lint      # eslint, включая правила границ слоё�
   дыра); чтобы «хвост» снапшота и живые чанки не задвоились, поток нумеруется (`cursor`/`end`),
   а `replaySlice` (shared/stream) режет пересечение. Правишь replay в `TerminalView` — держи
   инвариант (тесты `stream.test.ts`, `SessionManager.test.ts`).
+- **Действия запускаются через реестр** (M4): палитра, тумблеры, кнопки SQL и трей зовут
+  один `actions.run`. Значит, проверять prod-guard удобнее всего палитрой: подменить
+  `window.confirm` (см. выше), `press Meta+k`, набрать «прокси prod», `enter` — в `window.__c`
+  ляжет вопрос, а `false` в подмене оставит всё выключенным. Ответ `true` реально поднимет
+  туннель, так что на боевых пресетах отвечать «да» в автоматизации нельзя.
+- **Живой прогон на реальном конфиге** — `XET_CONFIG_PATH=$PWD/local-artifacts/config.json`
+  перед командой драйвера (иначе возьмётся userData-конфиг, а он может быть пустым).
 - **Смок-логика чипов**: залогинен → 4 чипа (юзер/кластер/kube/серт); не залогинен →
   1 красный чип. Оба валидны для smoke.
 

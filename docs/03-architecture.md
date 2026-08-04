@@ -45,19 +45,21 @@ src/
 │   │   ├── KubeService.ts        # M2: kube-контекст, поды, bash/логи/one-shot
 │   │   ├── SqlService.ts         # M3: запросы в туннель, история, psql, SELECT 1
 │   │   ├── DumpService.ts        # M3: пресеты pg_dump, прогресс по размеру файла
+│   │   ├── ActionRegistry.ts     # M4: Command — каталог действий для палитры/трея/хоткеев
 │   │   ├── AuthService.ts        # login/relogin, состояние сертификата
 │   │   ├── TotpService.ts        # генерация кодов (otplib) из секрета в CredentialStore
 │   │   ├── PromptPipeline.ts     # цепочка PromptHandler'ов (см. §4.3)
-│   │   ├── ActionRegistry.ts     # Command pattern: все действия приложения
-│   │   └── ModuleRegistry.ts     # модули и contribution points (ADR-0006)
+│   │   └── ModuleRegistry.ts     # модули и contribution points (ADR-0006) — со вторым модулем
+│   ├── config/              # схема конфига: сборка + собственная секция ui (хоткеи)
 │   └── modules/
-│       └── teleport/        # первый модуль: TshClient (facade), пресеты действий,
+│       └── teleport/        # первый модуль: TshClient (facade), действия (actions.ts),
 │                            #   PodSelector, конфиг окружений; будущее: grafana/, calendar/
 ├── main/                    # composition root (Electron main)
 │   ├── adapters/            # реализации ports: SafeStorageCredentialStore, NodePtyFactory,
 │   │                        #   ExecFileRunner, FileTextStore, PgSqlDriver, NetTcpProbe,
 │   │                        #   FsFileStat, ShellPathResolver (см. §7)
-│   ├── ipc/                 # регистрация handle/send по контракту из shared/
+│   ├── ipc/                 # регистрация handle/send по контракту + notifications.ts
+│   ├── actions.ts           # запуск действий вне окна (трей, хоткей): вопросы — нативные
 │   ├── tray.ts  windows.ts  hotkeys.ts  index.ts
 ├── preload/
 │   └── index.ts             # contextBridge.exposeInMainWorld('api', …)
@@ -66,7 +68,8 @@ src/
 │   ├── components/          # Terminal(xterm), PodsTable, SqlConsole, ProxyCard, Palette…
 │   └── views/
 └── shared/                  # IPC-КОНТРАКТ: имена каналов, типы, zod-схемы.
-    └── ipc.ts               #   Единственная точка правды для main/preload/renderer.
+    ├── types.ts channels.ts schemas.ts  # единственная точка правды для main/preload/renderer
+    └── fuzzy.ts accelerator.ts jsonPath.ts  # чистые помощники UI (палитра, хоткеи, редактор)
 ```
 
 Правило зависимостей: `renderer → shared ← main → core`; `core` не знает ни про кого.
@@ -108,18 +111,18 @@ flowchart LR
 
 ## 4. Паттерны проектирования и где они применяются
 
-| Паттерн                                | Где                                                                          | Зачем именно здесь                                                                                                                                                         |
-|----------------------------------------|------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Ports & Adapters (гексагональный)**  | `core/ports` + `main/adapters`                                               | Core тестируется без Electron; будущие замены безболезненны: Keychain→удалённый API кредов, node-pty→другой PTY, macOS→Linux/Windows (NFR-4, FR-A2)                        |
-| **Command**                            | `ActionRegistry`, все пользовательские действия                              | Одно определение действия питает палитру ⌘K, popover трея, хоткеи и будущие модули; действия декларативны: `{id, title, scope, params?, run}`                              |
-| **State Machine (FSM)**                | `SessionManager` — жизненный цикл сессии                                     | Промпты/падения/рестарты — явные переходы, UI просто отображает состояние; невозможные переходы отсекаются на типах (см. §4.2)                                             |
-| **Supervisor**                         | `ProxySupervisor`                                                            | Долгоживущие прокси: рестарт с backoff, лимит попыток, массовый рестарт после перелогина; политика отделена от механики спавна                                             |
-| **Chain of Responsibility + Strategy** | `PromptPipeline`                                                             | Поток PTY прогоняется через цепочку обработчиков промптов: Password → Totp → AskUser-фолбэк; стратегии подключаются по конфигу сессии (см. §4.3)                           |
-| **Facade**                             | `TshClient`                                                                  | Все структурированные вызовы tsh (`status/db ls/kube login/get pods` + JSON-парсинг + zod) за одним типизированным интерфейсом; версия-специфичное — в одном месте (NFR-7) |
-| **Observer (typed EventEmitter)**      | core → IPC push → zustand                                                    | Однонаправленный поток данных: main — источник правды, renderer — проекция                                                                                                 |
-| **Repository**                         | `SessionRepository` (in-memory + ring buffers), `TextStore` (конфиг, история SQL) | Доступ к состоянию/данным за интерфейсом, а не размазан по сервисам                                                                                                        |
-| **Module / Contribution points**       | `ModuleRegistry` ([ADR-0006](adr/ADR-0006-module-system.md))                 | Будущие домены (Grafana-ссылки, календарь) добавляют `actions/trayItems/views/settings` без правок ядра (NFR-5)                                                            |
-| **ADR**                                | `docs/adr/`                                                                  | Решения фиксируются с контекстом; «почему так» не теряется                                                                                                                 |
+| Паттерн                                | Где                                                                                   | Зачем именно здесь                                                                                                                                                                                                                                   |
+|----------------------------------------|---------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Ports & Adapters (гексагональный)**  | `core/ports` + `main/adapters`                                                        | Core тестируется без Electron; будущие замены безболезненны: Keychain→удалённый API кредов, node-pty→другой PTY, macOS→Linux/Windows (NFR-4, FR-A2)                                                                                                  |
+| **Command**                            | `ActionRegistry` + провайдеры модулей ([ADR-0010](adr/ADR-0010-actions-and-shell.md)) | Одно определение действия питает палитру ⌘K, меню трея, тумблеры и хоткеи: `{id, title, group, param?, run}`. Вопросы пользователю — данные (`needs-confirm` с ключом), поэтому prod-guard описан один раз, а спрашивает каждый вызывающий по-своему |
+| **State Machine (FSM)**                | `SessionManager` — жизненный цикл сессии                                              | Промпты/падения/рестарты — явные переходы, UI просто отображает состояние; невозможные переходы отсекаются на типах (см. §4.2)                                                                                                                       |
+| **Supervisor**                         | `ProxySupervisor`                                                                     | Долгоживущие прокси: рестарт с backoff, лимит попыток, массовый рестарт после перелогина; политика отделена от механики спавна                                                                                                                       |
+| **Chain of Responsibility + Strategy** | `PromptPipeline`                                                                      | Поток PTY прогоняется через цепочку обработчиков промптов: Password → Totp → AskUser-фолбэк; стратегии подключаются по конфигу сессии (см. §4.3)                                                                                                     |
+| **Facade**                             | `TshClient`                                                                           | Все структурированные вызовы tsh (`status/db ls/kube login/get pods` + JSON-парсинг + zod) за одним типизированным интерфейсом; версия-специфичное — в одном месте (NFR-7)                                                                           |
+| **Observer (typed EventEmitter)**      | core → IPC push → zustand                                                             | Однонаправленный поток данных: main — источник правды, renderer — проекция                                                                                                                                                                           |
+| **Repository**                         | `SessionRepository` (in-memory + ring buffers), `TextStore` (конфиг, история SQL)     | Доступ к состоянию/данным за интерфейсом, а не размазан по сервисам                                                                                                                                                                                  |
+| **Module / Contribution points**       | `ModuleRegistry` ([ADR-0006](adr/ADR-0006-module-system.md))                          | Будущие домены (Grafana-ссылки, календарь) добавляют `actions/trayItems/views/settings` без правок ядра (NFR-5)                                                                                                                                      |
+| **ADR**                                | `docs/adr/`                                                                           | Решения фиксируются с контекстом; «почему так» не теряется                                                                                                                                                                                           |
 
 Осознанно **не** используем: DI-контейнер (ручная сборка в composition root — прозрачнее для
 одного разработчика), Redux/effector (zustand-зеркала достаточно — логика не в renderer),
@@ -204,9 +207,11 @@ interface PromptHandler {
 | `kube.bash` / `kube.logs` / `kube.execPty`      | `{env, workloadId, pod?}` → `{session, meta}` \| ошибка                                                     |
 | `kube.exec`                                     | `{…, command}` → `{stdout, stderr, code, ms}` \| `{error, needsPty}`                                        |
 | `sql.exec`                                      | `{presetId, query, confirmed?}` → `{columns, rows, ms, truncated, readOnly}` \| `{reason, error}`           |
-| `sql.history` / `sql.clearHistory`              | история запросов (persist в `<userData>/sql-history.json`)                                                 |
-| `sql.psql` / `sql.dump`                         | `{presetId}` / `{dumpId, presetId}` → `{session}` (PTY-таб; файл дампа выбирается диалогом в main)         |
-| `actions.list` / `actions.run`                  | палитра ⌘K                                                                                                  |
+| `sql.history` / `sql.clearHistory`              | история запросов (persist в `<userData>/sql-history.json`)                                                  |
+| `sql.psql` / `sql.dump`                         | `{presetId}` / `{dumpId, presetId}` → `{session}` (PTY-таб; файл дампа выбирается диалогом в main)          |
+| `actions.list` / `actions.run`                  | каталог действий и запуск по id (`{param?, confirmed[]}` → `{reveal}` \| `needs-confirm`)                   |
+| `config.get/check/save/importFile/exportFile`   | конфиг текстом; `check` — проблемы схемы с путями для редактора                                             |
+| `app.setAutostart`                              | `{enabled}` → фактическое состояние login item                                                              |
 | `settings.get` / `settings.save` / `creds.save` | …                                                                                                           |
 
 ### События (`webContents.send`, main → renderer)
@@ -221,6 +226,7 @@ interface PromptHandler {
 | `kube/state`    | `{view}` — окружение, кластер, «переключаю…»                      |
 | `kube/session`  | `{sessionId, meta}` — привязка сессии к поду (null = сессия ушла) |
 | `sql/dump`      | `{task}` — прогресс дампа (размер файла) и его финал              |
+| `ui/reveal`     | `{reveal}` — действие из трея/хоткея просит показать раздел, таб  |
 
 Правила: renderer никогда не вызывает tsh и не видит секретов; все мутации идут через main;
 события — единственный способ обновления zustand-стора (снапшот при подключении + дельты).
@@ -290,11 +296,11 @@ Core и модули не содержат `process.platform`-ветвлений
 
 ## 10. Тестирование
 
-| Уровень          | Что                                                                                                                                            | Чем                     |
-|------------------|------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------|
-| Unit (core)      | FSM-переходы, PromptPipeline на фикстурах реального вывода tsh, PodSelector (маски/свежайший), парсеры JSON, TotpService (фиксированное время) | vitest, без Electron    |
-| Интеграционные   | SessionManager + Supervisor против **фейкового tsh** (bash-скрипт, эмулирующий промпты/падения/зависания)                                      | vitest + node-pty       |
-| E2E (позже, M4+) | смоук: запуск окна, палитра, тумблер с фейковым tsh                                                                                            | Playwright for Electron |
+| Уровень        | Что                                                                                                                                            | Чем                     |
+|----------------|------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------|
+| Unit (core)    | FSM-переходы, PromptPipeline на фикстурах реального вывода tsh, PodSelector (маски/свежайший), парсеры JSON, TotpService (фиксированное время) | vitest, без Electron    |
+| Интеграционные | SessionManager + Supervisor против **фейкового tsh** (bash-скрипт, эмулирующий промпты/падения/зависания)                                      | vitest + node-pty       |
+| E2E (M4)       | `npm run test:e2e`: собранное приложение + фейковый `tsh` + временный userData — статус, поды, палитра, хоткеи, мастер первого запуска         | Playwright for Electron |
 
 Фикстуры вывода tsh лежат в `core/modules/teleport/__fixtures__/` и обновляются при смене
 версии Teleport (NFR-7).

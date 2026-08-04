@@ -1,8 +1,6 @@
 import { useState } from 'react'
-import { isProxyOn } from '@shared/proxy'
 import type { ProxyRunState, ProxyView } from '@shared/types'
-import { rpc } from '../api'
-import { startProxy } from '../proxy'
+import { runAction } from '../actions'
 import { useApp } from '../store'
 
 const STATE_LABELS: Record<ProxyRunState, string> = {
@@ -31,14 +29,12 @@ export function ProxyPanel(): React.JSX.Element | null {
   if (!firstId) return null
   const port = proxies[firstId]?.port
 
+  // тумблер — то же действие, что в палитре и трее (ADR-0004): все вопросы
+  // (боевая база, переключение общего порта) задаёт оно, а не панель
   const toggle = async (view: ProxyView): Promise<void> => {
     setBusy(view.presetId)
     try {
-      if (isProxyOn(view.state)) {
-        await rpc('proxy.stop', { presetId: view.presetId })
-        return
-      }
-      await startProxy(view)
+      await runAction(`proxy.toggle:${view.presetId}`)
     } finally {
       setBusy(null)
     }
@@ -53,7 +49,7 @@ export function ProxyPanel(): React.JSX.Element | null {
         return (
           <div key={id} className={`proxy ${view.env === 'prod' ? 'proxy-prod' : ''}`}>
             <button
-              className={`toggle ${isProxyOn(view.state) ? 'toggle-on' : ''}`}
+              className={`toggle ${view.on ? 'toggle-on' : ''}`}
               disabled={busy === id}
               title={view.error ?? `tsh proxy db --tunnel (${view.label})`}
               onClick={() => void toggle(view)}

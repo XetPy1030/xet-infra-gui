@@ -7,10 +7,10 @@ import { useApp } from './store'
  */
 export async function runKubeSession(run: () => Promise<KubeSessionResult>): Promise<boolean> {
   const s = useApp.getState()
-  s.setKubeError(null)
+  s.setAppError(null)
   const res = await run()
   if (!res.ok) {
-    s.setKubeError({ message: res.error, needsLogin: res.needsLogin === true })
+    s.setAppError({ message: res.error, needsLogin: res.needsLogin === true })
     return false
   }
   s.upsertSession(res.session)

@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { formatAccelerator } from '@shared/accelerator'
 import type { SessionState } from '@shared/types'
 import { rpc } from './api'
 import { KubeBar } from './components/KubeBar'
+import { Palette } from './components/Palette'
 import { PodsPanel } from './components/PodsPanel'
 import { ProxyPanel } from './components/ProxyPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { SqlPanel } from './components/SqlPanel'
 import { StatusBar } from './components/StatusBar'
 import { TerminalView } from './components/TerminalView'
+import { WizardPanel } from './components/WizardPanel'
+import { useHotkeys } from './hotkeys'
 import { confirmProd, runKubeSession } from './kube'
 import { useApp } from './store'
 
@@ -41,14 +45,28 @@ export function App(): React.JSX.Element {
     view,
     setView,
     kubeSessions,
-    kubeError,
-    setKubeError,
-    setActive
+    appError,
+    setAppError,
+    setActive,
+    ui,
+    settingsOpen,
+    setSettingsOpen,
+    wizardOpen,
+    setWizardOpen,
+    setPaletteOpen
   } = useApp()
   const [loggingIn, setLoggingIn] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
+  useHotkeys()
 
   const needsConfig = bootstrapped && config !== null && !config.configured
+  // первый запуск: мастер открывается сам — но ровно один раз, закрыл так закрыл
+  const wizardShown = useRef(false)
+  useEffect(() => {
+    if (needsConfig && !wizardShown.current) {
+      wizardShown.current = true
+      setWizardOpen(true)
+    }
+  }, [needsConfig, setWizardOpen])
   const active = activeId ? sessions[activeId] : undefined
   const activeKube = activeId ? kubeSessions[activeId] : undefined
   // под мог уехать в rollout: мёртвая kube-сессия предлагает свежайший (docs/02 §6.3).
@@ -72,14 +90,22 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app">
+      <Palette />
       <header className="header">
         <div className="header-left">
           <span className="logo">xet</span>
           <StatusBar status={status} loaded={bootstrapped} />
         </div>
         <div className="header-right">
-          <button onClick={() => setShowSettings((v) => !v)}>
-            {showSettings ? 'Скрыть настройки' : 'Настройки'}
+          <button
+            className="pal-open"
+            title="Палитра команд: любое действие приложения"
+            onClick={() => setPaletteOpen(true)}
+          >
+            {ui ? formatAccelerator(ui.hotkeys.palette) : '⌘K'} Действия
+          </button>
+          <button onClick={() => setSettingsOpen(!settingsOpen)}>
+            {settingsOpen ? 'Скрыть настройки' : 'Настройки'}
           </button>
           <button onClick={() => void rpc('tsh.status')}>Обновить</button>
           <button
@@ -93,17 +119,18 @@ export function App(): React.JSX.Element {
         </div>
       </header>
 
-      {showSettings && <SettingsPanel />}
+      {wizardOpen && <WizardPanel />}
+      {settingsOpen && <SettingsPanel />}
       <ProxyPanel />
       <KubeBar />
 
-      {needsConfig && !showSettings && (
+      {needsConfig && !wizardOpen && !settingsOpen && (
         <div className="banner">
-          Конфиг пуст: не заданы прокси и пользователь Teleport. Заполни его или импортируй
-          готовый шаблон.{' '}
-          <button className="primary" onClick={() => setShowSettings(true)}>
-            Открыть конфиг
+          Конфиг пуст: не заданы прокси и пользователь Teleport.{' '}
+          <button className="primary" onClick={() => setWizardOpen(true)}>
+            Мастер настройки
           </button>
+          <button onClick={() => setSettingsOpen(true)}>Открыть конфиг</button>
         </div>
       )}
 
@@ -118,15 +145,15 @@ export function App(): React.JSX.Element {
         </div>
       )}
 
-      {kubeError && (
+      {appError && (
         <div className="banner banner-red">
-          {kubeError.message}
-          {kubeError.needsLogin && (
+          {appError.message}
+          {appError.needsLogin && (
             <button className="primary" disabled={loggingIn} onClick={() => void onLogin()}>
               Перелогин
             </button>
           )}
-          <button onClick={() => setKubeError(null)}>Скрыть</button>
+          <button onClick={() => setAppError(null)}>Скрыть</button>
         </div>
       )}
 
